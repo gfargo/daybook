@@ -1,0 +1,25 @@
+{
+  "name": "@daybook/tax",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cost-basis lot tracking, gain/loss computation, tax-ready CSV export",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@daybook/ledger": "workspace:*",
+    "csv-stringify": "^6.5.0",
+    "decimal.js": "^10.4.3"
+  }
+}

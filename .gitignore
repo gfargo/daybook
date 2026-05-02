@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Local data — never commit
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+data/
+.env
+.env.local
+
+# Test fixtures derived from real wallet data — anonymize before committing
+fixtures/private/
+*.private.csv
+*.private.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+.kiro
+docs
+CLAUDE.md

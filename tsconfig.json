@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "files": [],
+  "references": [
+    { "path": "./packages/ledger" },
+    { "path": "./packages/sources" },
+    { "path": "./packages/classifier" },
+    { "path": "./packages/tax" },
+    { "path": "./packages/cli" }
+  ]
+}

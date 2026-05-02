@@ -1,0 +1,36 @@
+{
+  "name": "@daybook/sources",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Adapters that turn raw source data into normalized RawEvents",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./coinbase": {
+      "types": "./dist/coinbase/index.d.ts",
+      "import": "./dist/coinbase/index.js"
+    },
+    "./evm": {
+      "types": "./dist/evm/index.d.ts",
+      "import": "./dist/evm/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/coinbase/index.ts src/evm/index.ts --format esm --dts --clean",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@daybook/ledger": "workspace:*",
+    "alchemy-sdk": "^3.5.0",
+    "csv-parse": "^5.5.0",
+    "decimal.js": "^10.4.3",
+    "viem": "^2.21.0",
+    "zod": "^3.23.0"
+  }
+}

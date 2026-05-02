@@ -1,0 +1,31 @@
+{
+  "name": "daybook",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Self-hosted crypto wallet auditing and tax reporting",
+  "license": "MIT",
+  "author": "Griffen Fargo",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint packages",
+    "typecheck": "tsc -b",
+    "clean": "pnpm -r exec rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
