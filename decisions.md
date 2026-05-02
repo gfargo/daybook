@@ -2,7 +2,7 @@
 
 Locked-in product decisions for daybook v1. Living document — update when something changes, with date + rationale.
 
-Last updated: 2026-05-01
+Last updated: 2026-05-02
 
 ## v1 scope
 
@@ -41,7 +41,7 @@ These are *known* concerns that v1 will not address. Captured here so future-us 
 
 Things to decide before relevant work, not blocking now:
 
-1. Pricing source(s) — CoinGecko vs CryptoCompare vs Alchemy vs Coinbase Spot. (See pricing-strategy doc when written.)
-2. Cost-basis default — FIFO or HIFO? (FIFO is the IRS default. HIFO usually minimizes tax. The CSV exporter should support both via a flag.)
-3. DEX router catalog — do we ship a curated JSON file or detect routers via heuristic + user override?
+1. ~~Pricing source(s) — CoinGecko vs CryptoCompare vs Alchemy vs Coinbase Spot.~~ **Resolved.** v1 uses a priority chain: source-reported → CoinGecko → manual override. Cached in SQLite.
+2. ~~Cost-basis default — FIFO or HIFO?~~ **Resolved.** FIFO is the default (IRS default). HIFO available via `--method HIFO` flag. `daybook compare` shows both side by side.
+3. ~~DEX router catalog — do we ship a curated JSON file or detect routers via heuristic + user override?~~ **Resolved.** Curated JSON file at `packages/classifier/src/dex-routers.json` (Uniswap V2/V3, MetaMask Swap Router, QuickSwap). Bridge catalog at `packages/classifier/src/bridges.json` (Celer cBridge V2, Polygon PoS Bridge).
 4. Repo public from day one or private until v1 ships?
