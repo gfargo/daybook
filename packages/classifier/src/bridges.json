@@ -1,0 +1,6 @@
+[
+  { "chain": 1, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2" },
+  { "chain": 1, "address": "0xa0c68c638235ee32657e8f720a23cec1bfc6c9a8", "protocol": "Polygon", "version": "PoS Bridge (ERC20)" },
+  { "chain": 1, "address": "0x401f6c983ea34274ec46f84d70b31c151321188b", "protocol": "Polygon", "version": "PoS Bridge (Ether)" },
+  { "chain": 137, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2 (Polygon)" }
+]
