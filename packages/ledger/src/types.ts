@@ -220,6 +220,26 @@ export interface ClassifierOverride {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Price overrides — user-entered manual prices
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A user-entered manual price override for an asset on a specific date. */
+export interface PriceOverride {
+  /** Deterministic ID, e.g. `${asset}:${day}`. */
+  id: string;
+  /** Ticker symbol (uppercase). */
+  asset: string;
+  /** Unix seconds at 00:00 UTC of the date. */
+  day: number;
+  /** USD price as a decimal string. */
+  priceUsd: string;
+  /** Optional user note. */
+  note?: string;
+  /** When the override was created (Date). */
+  createdAt: Date;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
