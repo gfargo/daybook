@@ -1,9 +1,7 @@
 /**
  * Ink-based events table for `daybook events list`.
  *
- * Renders a fixed-width table of RawEvents using Ink's Box and Text
- * components. Modelled on the existing CompareTable.tsx pattern.
- *
+ * Renders a fixed-width table of RawEvents using the shared UI library.
  * Column widths: Timestamp (20), Type (18), Asset/Amount (30),
  * Source (12), Account (16 — omitted when terminal < 100 chars).
  *
@@ -14,6 +12,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { RawEvent } from '@daybook/ledger';
+import { color, EmptyState } from '../ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Props
@@ -42,16 +41,12 @@ const MIN_WIDTH_FOR_ACCOUNT = 100;
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Format a Date to ISO 8601 with seconds precision (no milliseconds, no Z suffix).
- */
+/** Format a Date to ISO 8601 with seconds precision. */
 function formatTimestamp(date: Date): string {
   return date.toISOString().slice(0, 19);
 }
 
-/**
- * Determine whether the Account column should be shown based on terminal width.
- */
+/** Determine whether the Account column should be shown based on terminal width. */
 function shouldShowAccount(): boolean {
   return (process.stdout.columns ?? 80) >= MIN_WIDTH_FOR_ACCOUNT;
 }
@@ -60,13 +55,10 @@ function shouldShowAccount(): boolean {
 // Leg renderer
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Render a single AssetLeg as a React element.
- * Fee legs use dimmed color with a `(fee)` prefix.
- */
+/** Render a single AssetLeg. Fee legs use paper color with a `(fee)` prefix. */
 function LegText({ amount, asset, feeFlag }: { amount: string; asset: string; feeFlag: boolean | undefined }): React.ReactElement {
   if (feeFlag) {
-    return <Text dimColor>(fee) {amount} {asset}</Text>;
+    return <Text>{color.paper(`(fee) ${amount} ${asset}`)}</Text>;
   }
   return <Text>{amount} {asset}</Text>;
 }
@@ -88,7 +80,7 @@ function EventRow({ event, showAccount }: EventRowProps): React.ReactElement {
         <Text>{formatTimestamp(event.timestamp)}</Text>
       </Box>
       <Box width={COL_TYPE}>
-        <Text>{event.type}</Text>
+        <Text>{color.stamp(event.type)}</Text>
       </Box>
       <Box width={COL_ASSET_AMOUNT}>
         {event.legs.map((leg, i) => (
@@ -99,11 +91,11 @@ function EventRow({ event, showAccount }: EventRowProps): React.ReactElement {
         ))}
       </Box>
       <Box width={COL_SOURCE}>
-        <Text>{event.source}</Text>
+        <Text>{color.stamp(event.source)}</Text>
       </Box>
       {showAccount && (
         <Box width={COL_ACCOUNT}>
-          <Text>{event.accountId}</Text>
+          <Text>{color.paper(event.accountId)}</Text>
         </Box>
       )}
     </Box>
@@ -123,20 +115,20 @@ function HeaderRow({ showAccount }: HeaderRowProps): React.ReactElement {
   return (
     <Box>
       <Box width={COL_TIMESTAMP}>
-        <Text bold>Timestamp</Text>
+        <Text bold>{color.paper('Timestamp')}</Text>
       </Box>
       <Box width={COL_TYPE}>
-        <Text bold>Type</Text>
+        <Text bold>{color.paper('Type')}</Text>
       </Box>
       <Box width={COL_ASSET_AMOUNT}>
-        <Text bold>Asset/Amount</Text>
+        <Text bold>{color.paper('Asset/Amount')}</Text>
       </Box>
       <Box width={COL_SOURCE}>
-        <Text bold>Source</Text>
+        <Text bold>{color.paper('Source')}</Text>
       </Box>
       {showAccount && (
         <Box width={COL_ACCOUNT}>
-          <Text bold>Account</Text>
+          <Text bold>{color.paper('Account')}</Text>
         </Box>
       )}
     </Box>
@@ -148,16 +140,19 @@ function HeaderRow({ showAccount }: HeaderRowProps): React.ReactElement {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Renders a table of RawEvents using Ink Box/Text components.
+ * Renders a table of RawEvents using the shared UI library.
  *
  * Shows one row per event with columns for timestamp, type, asset/amount
  * legs, source, and (when the terminal is wide enough) account ID.
- *
- * When the events array is empty, renders a plain empty-state message.
  */
 export function EventsTable({ events }: EventsTableProps): React.ReactElement {
   if (events.length === 0) {
-    return <Text>No events match. Run `daybook sync ...` or relax the filter.</Text>;
+    return (
+      <EmptyState
+        title="No events match"
+        hint="Run daybook sync first, or relax the --type filter."
+      />
+    );
   }
 
   const showAccount = shouldShowAccount();
