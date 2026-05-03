@@ -32,6 +32,7 @@ import {
 } from '@daybook/ledger';
 import { expandPath, loadConfig } from '../config.js';
 import { UnclassifiedReview } from './UnclassifiedReview.js';
+import { renderClassifyOutput, renderClassifyDryRun } from './ClassifyOutput.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Command interface
@@ -84,10 +85,22 @@ export async function classifyCommand(opts: ClassifyOptions): Promise<void> {
 
     // 5. Persist or dry-run
     if (opts.dryRun) {
-      printDryRunOutput(result, repo, events.length, overrides.length);
+      // Compute diff against current DB
+      const existing = repo.getLedgerEntries({ limit: 1_000_000 });
+      let diff: { added: number; removed: number; unchanged: number } | undefined;
+      if (existing.length > 0) {
+        const existingIds = new Set(existing.map(e => e.id));
+        const newIds = new Set(result.entries.map(e => e.id));
+        diff = {
+          added: result.entries.filter(e => !existingIds.has(e.id)).length,
+          removed: existing.filter(e => !newIds.has(e.id)).length,
+          unchanged: result.entries.filter(e => existingIds.has(e.id)).length,
+        };
+      }
+      renderClassifyDryRun(result, events.length, overrides.length, diff);
     } else {
       repo.rebuildLedgerEntries(result.entries);
-      printNormalOutput(result, events.length, overrides.length);
+      renderClassifyOutput(result, events.length, overrides.length);
 
       // 6. Interactive review of unclassified entries
       if (opts.review !== false) {
@@ -143,123 +156,5 @@ function runUnclassifiedReview(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Dry-run output
+// (Output rendering moved to ClassifyOutput.tsx)
 // ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Print dry-run summary with diff against current persisted entries.
- * No database writes occur.
- */
-function printDryRunOutput(
-  result: { entries: { id: string; type: string }[]; unclassifiedCount: number; perRuleCounts: Record<string, number> },
-  repo: ReturnType<typeof createRepo>,
-  eventCount: number,
-  overrideCount: number,
-): void {
-  console.log('[dry-run] No changes written to database');
-  console.log('');
-
-  // Summary
-  console.log(`  Events processed:    ${eventCount}`);
-  console.log(`  Entries computed:    ${result.entries.length}`);
-
-  // Per-type breakdown
-  const typeCounts = new Map<string, number>();
-  for (const entry of result.entries) {
-    typeCounts.set(entry.type, (typeCounts.get(entry.type) ?? 0) + 1);
-  }
-  const sortedTypes = [...typeCounts.entries()].sort(
-    (a, b) => b[1] - a[1],
-  );
-  for (const [type, count] of sortedTypes) {
-    console.log(`    ${(type + ':').padEnd(28)} ${count}`);
-  }
-
-  // Unclassified warning
-  if (result.unclassifiedCount > 0) {
-    console.log('');
-    console.log(
-      `  ⚠ Unclassified events: ${result.unclassifiedCount}`,
-    );
-  }
-
-  if (overrideCount > 0) {
-    console.log('');
-    console.log(`  Overrides applied:   ${overrideCount}`);
-  }
-
-  // Diff against current DB
-  const existing = repo.getLedgerEntries({ limit: 1_000_000 });
-
-  if (existing.length === 0) {
-    console.log('');
-    console.log('  All entries are new (no existing entries in database).');
-    return;
-  }
-
-  const existingIds = new Set(existing.map(e => e.id));
-  const newIds = new Set(result.entries.map(e => e.id));
-
-  const added = result.entries.filter(e => !existingIds.has(e.id));
-  const removed = existing.filter(e => !newIds.has(e.id));
-  const unchanged = result.entries.filter(e => existingIds.has(e.id));
-
-  console.log('');
-  console.log('  Changes vs current DB:');
-  console.log(`    + ${added.length} new entries`);
-  console.log(`    - ${removed.length} removed entries`);
-  console.log(`    = ${unchanged.length} unchanged`);
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Normal (non-dry-run) output
-// ─────────────────────────────────────────────────────────────────────────
-
-/** Print the standard classification summary and persist entries. */
-function printNormalOutput(
-  result: { entries: { id: string; type: string }[]; unclassifiedCount: number; perRuleCounts: Record<string, number> },
-  eventCount: number,
-  overrideCount: number,
-): void {
-  console.log('Classification complete.');
-  console.log(`  Events processed:    ${eventCount}`);
-  console.log(`  Ledger entries:      ${result.entries.length}`);
-  console.log('');
-
-  // Per-type breakdown
-  const typeCounts = new Map<string, number>();
-  for (const entry of result.entries) {
-    typeCounts.set(entry.type, (typeCounts.get(entry.type) ?? 0) + 1);
-  }
-  const sortedTypes = [...typeCounts.entries()].sort(
-    (a, b) => b[1] - a[1],
-  );
-  for (const [type, count] of sortedTypes) {
-    console.log(`    ${(type + ':').padEnd(28)} ${count}`);
-  }
-
-  // Per-rule breakdown
-  if (Object.keys(result.perRuleCounts).length > 0) {
-    console.log('');
-    console.log('  Per-rule counts:');
-    for (const [rule, count] of Object.entries(result.perRuleCounts)) {
-      console.log(`    ${(rule + ':').padEnd(28)} ${count}`);
-    }
-  }
-
-  // Unclassified warning
-  if (result.unclassifiedCount > 0) {
-    console.log('');
-    console.log(
-      `  ⚠ Unclassified events: ${result.unclassifiedCount}`,
-    );
-    console.log(
-      '    Use `daybook overrides` to manually classify these.',
-    );
-  }
-
-  if (overrideCount > 0) {
-    console.log('');
-    console.log(`  Overrides applied:   ${overrideCount}`);
-  }
-}

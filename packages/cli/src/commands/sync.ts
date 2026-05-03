@@ -19,6 +19,7 @@ import {
 } from '@daybook/sources/evm';
 import type { Config } from '../config.js';
 import { expandPath, loadConfig } from '../config.js';
+import { renderCsvSyncOutput, renderEvmSyncOutput } from './SyncOutput.js';
 
 export interface SyncOptions {
   source: string;
@@ -100,30 +101,18 @@ async function syncCoinbase(
   const insertResult = repo.insertRawEvents(result.events);
 
   // Report
-  console.log(`Coinbase sync (${accountId}):`);
-  console.log(`  Read ${result.totalRows} CSV rows → ${result.events.length} events`);
-  console.log(`  Inserted: ${insertResult.inserted}`);
-  console.log(`  Skipped (already in DB): ${insertResult.skipped}`);
-  if (result.unparsedRowCount > 0) {
-    console.log(`  ⚠ Unparsed rows: ${result.unparsedRowCount}`);
-  }
-  if (warnings.length) {
-    console.log(`  Warnings (${warnings.length}):`);
-    for (const w of warnings.slice(0, 10)) {
-      console.log(`    - ${w}`);
-    }
-    if (warnings.length > 10) {
-      console.log(`    ... and ${warnings.length - 10} more`);
-    }
-  }
-
-  // Per-type breakdown of what's now in the DB
-  console.log('');
-  console.log(`  Events in DB for ${accountId}:`);
-  const counts = repo.countByType({ accountId });
-  for (const c of counts) {
-    console.log(`    ${(c.type + ':').padEnd(20)} ${c.count}`);
-  }
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Coinbase',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+    dbCounts,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -165,27 +154,17 @@ async function syncKraken(
   const insertResult = repo.insertRawEvents(result.events);
 
   // Report
-  console.log(`Kraken sync (${accountId}):`);
-  console.log(`  Read ${result.totalRows} CSV rows → ${result.events.length} events`);
-  console.log(`  Inserted: ${insertResult.inserted}`);
-  console.log(`  Skipped (already in DB): ${insertResult.skipped}`);
-  if (result.warnings.length) {
-    console.log(`  Warnings (${result.warnings.length}):`);
-    for (const w of result.warnings.slice(0, 10)) {
-      console.log(`    - ${w}`);
-    }
-    if (result.warnings.length > 10) {
-      console.log(`    ... and ${result.warnings.length - 10} more`);
-    }
-  }
-
-  // Per-type breakdown of what's now in the DB
-  console.log('');
-  console.log(`  Events in DB for ${accountId}:`);
-  const counts = repo.countByType({ accountId });
-  for (const c of counts) {
-    console.log(`    ${(c.type + ':').padEnd(20)} ${c.count}`);
-  }
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Kraken',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -240,15 +219,16 @@ async function syncEvm(
 
   // ─── Resolve --from to a block number ──────────────────────────────
   let fromBlock: bigint | undefined;
+  let fromBlockInfo: { blockNumber: bigint; date: string } | undefined;
   if (opts.from) {
     const resolved = await resolveFromBlock(opts.from, chainId, apiKey);
     fromBlock = resolved.blockNumber;
-    console.log(
-      `Syncing from block ${resolved.blockNumber} (${resolved.timestamp.toISOString().slice(0, 10)})`,
-    );
+    fromBlockInfo = {
+      blockNumber: resolved.blockNumber,
+      date: resolved.timestamp.toISOString().slice(0, 10),
+    };
   }
 
-  console.log(`EVM sync (${accountId}, ${opts.source}):`);
   const { events, stats } = await ingestEvm({
     provider,
     address: account.identifier,
@@ -257,15 +237,6 @@ async function syncEvm(
     source: account.source,
     ...(fromBlock !== undefined ? { fromBlock } : {}),
   });
-
-  console.log(`  Native: ${stats.native}`);
-  console.log(`  Internal: ${stats.internal}`);
-  console.log(`  ERC-20: ${stats.erc20}`);
-  console.log(`  ERC-721: ${stats.erc721} (nft_event placeholders)`);
-  console.log(`  ERC-1155: ${stats.erc1155}`);
-  if (stats.deduped > 0) {
-    console.log(`  (${stats.deduped} duplicate transfers skipped)`);
-  }
 
   // ─── Failed-tx gas via Etherscan ───────────────────────────────────
   const allEvents = [...events];
@@ -292,19 +263,20 @@ async function syncEvm(
 
     allEvents.push(...failedEvents);
     failedGasCount = failedStats.native;
-    console.log(`  Failed-tx gas entries: ${failedGasCount}`);
   }
 
   const insertResult = repo.insertRawEvents(allEvents);
-  console.log(`  Total: ${allEvents.length}`);
-  console.log(`  Inserted: ${insertResult.inserted}`);
-  console.log(`  Skipped (already in DB): ${insertResult.skipped}`);
 
-  // Per-type breakdown of what's now in the DB
-  console.log('');
-  console.log(`  Events in DB for ${accountId}:`);
-  const counts = repo.countByType({ accountId });
-  for (const c of counts) {
-    console.log(`    ${(c.type + ':').padEnd(20)} ${c.count}`);
-  }
+  const dbCounts = repo.countByType({ accountId });
+  renderEvmSyncOutput({
+    source: opts.source,
+    accountId,
+    eventCount: allEvents.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    stats,
+    ...(failedGasCount > 0 ? { failedGasCount } : {}),
+    ...(fromBlockInfo ? { fromBlock: fromBlockInfo } : {}),
+    dbCounts,
+  });
 }
