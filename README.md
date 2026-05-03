@@ -2,7 +2,7 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** v1.1 feature-complete. All packages implemented, 205 tests passing.
+**Status:** v0.1.0 — feature-complete. All packages implemented, 205 tests passing.
 
 ## What it does
 
@@ -146,7 +146,6 @@ All syncs are idempotent — running them twice with the same data is a no-op.
 1. **`docs/data-model-spec.md`** — concrete data model from inspecting real Coinbase + on-chain data.
 2. **`docs/implementation-plan.md`** — v1 phase decomposition and v1.1 enhancements with effort estimates and risk register.
 3. **`docs/tax-strategy-config.md`** — configurable tax-treatment dimensions for v2.
-4. **`decisions.md`** — locked-in product decisions (tax scope, sync model, license).
 
 ## Scope
 
@@ -178,7 +177,7 @@ All syncs are idempotent — running them twice with the same data is a no-op.
 - ❌ NFT cost basis (emits placeholder events)
 - ❌ Solana, Bitcoin, other non-EVM chains
 
-See `decisions.md` for full scope and explicit deferrals.
+See the [deferred section in product.md](.kiro/steering/product.md) for full scope and explicit deferrals.
 
 ## Status by package
 
