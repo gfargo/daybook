@@ -111,7 +111,7 @@ program
 program
   .command('export <year>')
   .description('Export tax-ready CSV for a given year')
-  .option('--method <FIFO|HIFO|specific-id>', 'Cost-basis method')
+  .option('--method <FIFO|HIFO|LIFO|specific-id>', 'Cost-basis method')
   .option('--output <path>', 'CSV output path')
   .option('--lot-selections <path>', 'JSON file with lot selections for specific-id method')
   .option('--no-wash-sale-flag', 'Omit the Wash Sale? column from the CSV export')

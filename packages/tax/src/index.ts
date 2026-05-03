@@ -19,7 +19,7 @@
  * Pending implementation.
  */
 
-export type CostBasisMethod = 'FIFO' | 'HIFO' | 'Specific ID';
+export type CostBasisMethod = 'FIFO' | 'HIFO' | 'LIFO' | 'Specific ID';
 
 // ─── Tax engine types ────────────────────────────────────────────────────
 export type {
@@ -34,7 +34,7 @@ export type {
   LotSelection,
 } from './cost-basis.js';
 
-export { FIFO, HIFO, SpecificId } from './cost-basis.js';
+export { FIFO, HIFO, LIFO, SpecificId } from './cost-basis.js';
 
 export { LotBook } from './lot-book.js';
 

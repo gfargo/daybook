@@ -67,9 +67,10 @@ describe('compareMethods integration', () => {
     const entries = buildTestEntries();
     const result = compareMethods(entries, 2024);
 
-    expect(result.results).toHaveLength(2);
+    expect(result.results).toHaveLength(3);
     expect(result.results[0]!.method).toBe('FIFO');
     expect(result.results[1]!.method).toBe('HIFO');
+    expect(result.results[2]!.method).toBe('LIFO');
 
     // FIFO sells the $1000 lot → gain = $2500 - $1000 = $1500
     // HIFO sells the $2000 lot → gain = $2500 - $2000 = $500
@@ -91,7 +92,7 @@ describe('compareMethods integration', () => {
     const result = compareMethods(entries, 2024);
     const summaries = summarizeResults(result);
 
-    expect(summaries).toHaveLength(2);
+    expect(summaries).toHaveLength(3);
 
     const fifoSummary = summaries.find(s => s.method === 'FIFO')!;
     const hifoSummary = summaries.find(s => s.method === 'HIFO')!;
@@ -114,7 +115,7 @@ describe('compareMethods integration', () => {
     // Query for a year with no disposals
     const result = compareMethods(entries, 2023);
 
-    expect(result.results).toHaveLength(2);
+    expect(result.results).toHaveLength(3);
     const summaries = summarizeResults(result);
 
     for (const s of summaries) {

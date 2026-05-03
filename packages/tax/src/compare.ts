@@ -11,7 +11,7 @@
 import Decimal from 'decimal.js';
 import type { LedgerEntry } from '@daybook/ledger';
 import { computeTax } from './compute.js';
-import { FIFO, HIFO } from './cost-basis.js';
+import { FIFO, HIFO, LIFO } from './cost-basis.js';
 import type { CostBasisStrategy } from './cost-basis.js';
 import type { TaxResult } from './types.js';
 
@@ -61,7 +61,7 @@ export interface MethodSummary {
 const DEFAULT_HOLDING_PERIOD_DAYS = 365;
 
 /** All supported cost-basis strategies for comparison. */
-const METHODS: CostBasisStrategy[] = [FIFO, HIFO];
+const METHODS: CostBasisStrategy[] = [FIFO, HIFO, LIFO];
 
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers

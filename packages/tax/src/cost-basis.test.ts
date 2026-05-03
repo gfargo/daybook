@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import Decimal from 'decimal.js';
-import { SpecificId } from './cost-basis.js';
+import { SpecificId, FIFO, HIFO, LIFO } from './cost-basis.js';
 import type { Lot } from './types.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -212,5 +212,111 @@ describe('SpecificId', () => {
       );
       expect(totalConsumed.eq(new Decimal('0.3'))).toBe(true);
     });
+  });
+});
+
+// ─── LIFO tests ──────────────────────────────────────────────────────────
+
+describe('LIFO', () => {
+  it('has the correct name', () => {
+    expect(LIFO.name).toBe('LIFO');
+  });
+
+  it('selects the most recently acquired lot first', () => {
+    const lots: Lot[] = [
+      makeLot({ id: 'old', asset: 'ETH', amount: '1.0', acquiredAt: new Date('2023-01-01') }),
+      makeLot({ id: 'mid', asset: 'ETH', amount: '1.0', acquiredAt: new Date('2024-01-01') }),
+      makeLot({ id: 'new', asset: 'ETH', amount: '1.0', acquiredAt: new Date('2024-06-01') }),
+    ];
+
+    const result = LIFO.selectLots(lots, new Decimal('1.5'));
+
+    expect(result.consumed).toHaveLength(2);
+    expect(result.consumed[0]!.lot.id).toBe('new');
+    expect(result.consumed[0]!.amount).toBe('1');
+    expect(result.consumed[1]!.lot.id).toBe('mid');
+    expect(result.consumed[1]!.amount).toBe('0.5');
+    expect(result.remainder).toBe('0');
+  });
+
+  it('produces different results than FIFO for the same lots', () => {
+    const lots: Lot[] = [
+      makeLot({ id: 'cheap-old', asset: 'ETH', amount: '1.0', unitCostUsd: '100', acquiredAt: new Date('2023-01-01') }),
+      makeLot({ id: 'expensive-new', asset: 'ETH', amount: '1.0', unitCostUsd: '3000', acquiredAt: new Date('2024-06-01') }),
+    ];
+
+    const fifoResult = FIFO.selectLots(lots, new Decimal('1.0'));
+    const lifoResult = LIFO.selectLots(lots, new Decimal('1.0'));
+
+    // FIFO takes the oldest (cheap), LIFO takes the newest (expensive)
+    expect(fifoResult.consumed[0]!.lot.id).toBe('cheap-old');
+    expect(lifoResult.consumed[0]!.lot.id).toBe('expensive-new');
+  });
+
+  it('handles partial lot consumption correctly', () => {
+    const lots: Lot[] = [
+      makeLot({ id: 'lot-1', asset: 'BTC', amount: '0.5', acquiredAt: new Date('2023-06-01') }),
+      makeLot({ id: 'lot-2', asset: 'BTC', amount: '2.0', acquiredAt: new Date('2024-01-15') }),
+    ];
+
+    const result = LIFO.selectLots(lots, new Decimal('1.0'));
+
+    // Takes from lot-2 first (newest), partially
+    expect(result.consumed).toHaveLength(1);
+    expect(result.consumed[0]!.lot.id).toBe('lot-2');
+    expect(result.consumed[0]!.amount).toBe('1');
+    expect(result.remainder).toBe('0');
+  });
+
+  it('returns remainder when lots are insufficient', () => {
+    const lots: Lot[] = [
+      makeLot({ id: 'lot-1', asset: 'ETH', amount: '0.5', acquiredAt: new Date('2024-01-01') }),
+    ];
+
+    const result = LIFO.selectLots(lots, new Decimal('2.0'));
+
+    expect(result.consumed).toHaveLength(1);
+    expect(result.consumed[0]!.amount).toBe('0.5');
+    expect(result.remainder).toBe('1.5');
+  });
+});
+
+// ─── FIFO / HIFO basic sanity ────────────────────────────────────────────
+
+describe('FIFO', () => {
+  it('has the correct name', () => {
+    expect(FIFO.name).toBe('FIFO');
+  });
+
+  it('selects the oldest lot first', () => {
+    const lots: Lot[] = [
+      makeLot({ id: 'new', asset: 'ETH', amount: '1.0', acquiredAt: new Date('2024-06-01') }),
+      makeLot({ id: 'old', asset: 'ETH', amount: '1.0', acquiredAt: new Date('2023-01-01') }),
+    ];
+
+    const result = FIFO.selectLots(lots, new Decimal('1.0'));
+
+    expect(result.consumed).toHaveLength(1);
+    expect(result.consumed[0]!.lot.id).toBe('old');
+    expect(result.remainder).toBe('0');
+  });
+});
+
+describe('HIFO', () => {
+  it('has the correct name', () => {
+    expect(HIFO.name).toBe('HIFO');
+  });
+
+  it('selects the highest-cost lot first', () => {
+    const lots: Lot[] = [
+      makeLot({ id: 'cheap', asset: 'ETH', amount: '1.0', unitCostUsd: '100' }),
+      makeLot({ id: 'expensive', asset: 'ETH', amount: '1.0', unitCostUsd: '3000' }),
+    ];
+
+    const result = HIFO.selectLots(lots, new Decimal('1.0'));
+
+    expect(result.consumed).toHaveLength(1);
+    expect(result.consumed[0]!.lot.id).toBe('expensive');
+    expect(result.remainder).toBe('0');
   });
 });

@@ -74,25 +74,17 @@ function TableRow({ label, values, highlight, labelWidth, colWidth }: TableRowPr
  * method highlighted in note color + bold.
  */
 export function CompareTable({ summaries, lowestTaxMethod }: CompareTableProps): React.ReactElement {
-  const byMethod = new Map<string, MethodSummary>();
-  for (const s of summaries) {
-    byMethod.set(s.method, s);
-  }
+  const methods = summaries.map(s => s.method);
+  const methodSummaries = summaries;
 
-  const fifo = byMethod.get('FIFO');
-  const hifo = byMethod.get('HIFO');
-
-  if (!fifo || !hifo) {
+  if (methods.length === 0) {
     return (
       <ErrorBlock
-        title="Comparison requires both FIFO and HIFO results"
-        recovery="Run daybook export with both methods first."
+        title="No method results to compare"
+        recovery="Run daybook compare <year> to generate comparison data."
       />
     );
   }
-
-  const methods = ['FIFO', 'HIFO'] as const;
-  const methodSummaries = [fifo, hifo];
 
   const rows: Array<{ label: string; values: string[]; highlightLowest?: boolean }> = [
     {
@@ -121,7 +113,7 @@ export function CompareTable({ summaries, lowestTaxMethod }: CompareTableProps):
   const labelWidth = 20;
   const colWidth = 20;
 
-  const lowestIdx = methods.indexOf(lowestTaxMethod as typeof methods[number]);
+  const lowestIdx = methods.indexOf(lowestTaxMethod);
   const divider = color.rule('─'.repeat(labelWidth - 1) + '┼' + '─'.repeat(colWidth * methods.length + 1));
 
   return (

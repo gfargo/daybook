@@ -24,13 +24,14 @@ import {
     formatCsv,
     FIFO,
     HIFO,
+    LIFO,
     SpecificId,
     LotBook,
     PriceCache,
     PricingChain,
     SourceReportedProvider,
     CoinGeckoProvider,
-    ManualOverrideProvider,
+    ManualOverrideProvider
 } from '@daybook/tax';
 import type { CostBasisStrategy, DisposalResult } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
@@ -71,10 +72,12 @@ function resolveMethod(flag: string | undefined, configDefault: string): CostBas
       return FIFO;
     case 'hifo':
       return HIFO;
+    case 'lifo':
+      return LIFO;
     case 'specific-id':
       return null; // handled separately
     default:
-      throw new Error(`Unknown cost-basis method: "${flag ?? configDefault}". Supported methods: FIFO, HIFO, specific-id.`);
+      throw new Error(`Unknown cost-basis method: "${flag ?? configDefault}". Supported methods: FIFO, HIFO, LIFO, specific-id.`);
   }
 }
 

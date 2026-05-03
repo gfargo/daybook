@@ -141,6 +141,26 @@ export const HIFO: CostBasisStrategy = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────
+// LIFO strategy
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Last In, First Out — disposes the most recently acquired lots first.
+ *
+ * Selects lots in descending order of acquisition date. Useful in
+ * rising markets where recent purchases have higher cost basis.
+ */
+export const LIFO: CostBasisStrategy = {
+  name: 'LIFO',
+  selectLots(available: ReadonlyArray<Lot>, amount: Decimal): LotSelection {
+    const sorted = [...available].sort(
+      (a, b) => b.acquiredAt.getTime() - a.acquiredAt.getTime(),
+    );
+    return takeFromQueue(sorted, amount);
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────
 // Specific ID strategy
 // ─────────────────────────────────────────────────────────────────────────
 
