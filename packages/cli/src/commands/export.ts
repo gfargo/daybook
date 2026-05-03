@@ -22,6 +22,9 @@ import { createRepo, openDatabase } from '@daybook/ledger';
 import {
     computeTax,
     formatCsv,
+    formatForm8949,
+    formatScheduleD,
+    formatTxf,
     FIFO,
     HIFO,
     LIFO,
@@ -33,7 +36,7 @@ import {
     CoinGeckoProvider,
     ManualOverrideProvider
 } from '@daybook/tax';
-import type { CostBasisStrategy, DisposalResult } from '@daybook/tax';
+import type { CostBasisStrategy, DisposalResult, CheckboxCategory } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
 import { LotPicker } from './LotPicker.js';
 import type { PendingDisposal } from './LotPicker.js';
@@ -48,11 +51,74 @@ export interface ExportOptions {
   config?: string;
   lotSelections?: string;
   noWashSaleFlag?: boolean;
+  format?: string;
+  '8949Checkbox'?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
+
+/** Supported export formats. */
+export const SUPPORTED_FORMATS = ['csv', '8949', 'schedule-d', 'txf'] as const;
+export type ExportFormat = typeof SUPPORTED_FORMATS[number];
+
+/**
+ * Validate and resolve the --format flag.
+ *
+ * @param flag - The raw --format value, if provided.
+ * @returns The resolved export format.
+ * @throws {Error} If the format is not supported.
+ */
+export function resolveFormat(flag: string | undefined): ExportFormat {
+  if (!flag) return 'csv';
+  const lower = flag.toLowerCase();
+  if (SUPPORTED_FORMATS.includes(lower as ExportFormat)) {
+    return lower as ExportFormat;
+  }
+  throw new Error(
+    `Unsupported format: "${flag}". Supported formats: ${SUPPORTED_FORMATS.join(', ')}`,
+  );
+}
+
+/**
+ * Validate and resolve the --8949-checkbox flag.
+ *
+ * @param flag - The raw --8949-checkbox value, if provided.
+ * @returns The resolved checkbox category.
+ * @throws {Error} If the value is not A, B, or C.
+ */
+export function resolveCheckbox(flag: string | undefined): CheckboxCategory {
+  if (!flag) return 'C';
+  const upper = flag.toUpperCase();
+  if (upper === 'A' || upper === 'B' || upper === 'C') {
+    return upper as CheckboxCategory;
+  }
+  throw new Error(
+    `Invalid checkbox category: "${flag}". Supported values: A, B, C`,
+  );
+}
+
+/**
+ * Build the default output file path for a given format.
+ *
+ * @param year - The tax year.
+ * @param method - The cost-basis method name.
+ * @param format - The export format.
+ * @returns The default output file path.
+ */
+export function defaultOutputPath(year: number, method: string, format: ExportFormat): string {
+  switch (format) {
+    case 'csv':
+      return `./daybook-${year}-${method}.csv`;
+    case '8949':
+      return `./daybook-${year}-${method}-8949.pdf`;
+    case 'schedule-d':
+      return `./daybook-${year}-${method}-schedule-d.pdf`;
+    case 'txf':
+      return `./daybook-${year}-${method}.txf`;
+  }
+}
 
 /**
  * Resolve the cost-basis strategy from the --method flag or config default.
@@ -482,13 +548,47 @@ export async function exportCommand(
       year: yearNum,
     });
 
-    // 8. Generate CSV
-    const csv = formatCsv(taxResult, { noWashSaleFlag: opts.noWashSaleFlag });
+    // 8. Resolve format and checkbox options
+    const format = resolveFormat(opts.format);
+    const checkbox = resolveCheckbox(opts['8949Checkbox']);
 
-    // 9. Write CSV to output path
+    // 9. Dispatch to the appropriate formatter and write output
     const methodName = strategy.name;
-    const outputPath = opts.output ?? `./daybook-${yearNum}-${methodName}.csv`;
-    writeFileSync(outputPath, csv, 'utf-8');
+    const outputPath = opts.output ?? defaultOutputPath(yearNum, methodName, format);
+
+    switch (format) {
+      case 'csv': {
+        const csv = formatCsv(taxResult, { noWashSaleFlag: opts.noWashSaleFlag });
+        writeFileSync(outputPath, csv, 'utf-8');
+        break;
+      }
+
+      case '8949': {
+        if (taxResult.disposals.length === 0) {
+          console.log(`No disposals found for ${yearNum}. Skipping Form 8949 generation.`);
+          return;
+        }
+        const pdfBytes = await formatForm8949(taxResult, { checkbox });
+        writeFileSync(outputPath, pdfBytes);
+        break;
+      }
+
+      case 'schedule-d': {
+        if (taxResult.disposals.length === 0) {
+          console.log(`No disposals found for ${yearNum}. Skipping Schedule D generation.`);
+          return;
+        }
+        const pdfBytes = await formatScheduleD(taxResult);
+        writeFileSync(outputPath, pdfBytes);
+        break;
+      }
+
+      case 'txf': {
+        const txf = formatTxf(taxResult, { checkbox });
+        writeFileSync(outputPath, txf, 'utf-8');
+        break;
+      }
+    }
 
     // 10. Print summary
     let shortTermGain = new Decimal(0);
@@ -501,13 +601,14 @@ export async function exportCommand(
       }
     }
 
-    console.log(`Export complete (${yearNum}, ${methodName}):`);
+    console.log(`Export complete (${yearNum}, ${methodName}, ${format}):`);
+    console.log(`  Format:              ${format}`);
     console.log(`  Disposals:           ${taxResult.disposals.length}`);
     console.log(`  Short-term gain:     ${shortTermGain.toString()}`);
     console.log(`  Long-term gain:      ${longTermGain.toString()}`);
     console.log(`  Total income:        ${taxResult.income.totalUsd}`);
     console.log(`  Unpriced events:     ${taxResult.unpricedEvents.length}`);
-    console.log(`  CSV written to:      ${outputPath}`);
+    console.log(`  Output written to:   ${outputPath}`);
 
     // Wash sale candidate summary
     if (!opts.noWashSaleFlag) {
