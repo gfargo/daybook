@@ -14,6 +14,7 @@
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { PriceOverride } from '@daybook/ledger';
 import { expandPath, loadConfig } from '../config.js';
+import { renderOverridesList } from './OverridesList.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Command interfaces
@@ -163,8 +164,8 @@ export async function overridesSetCommand(
 /**
  * Handler for `daybook overrides list`.
  *
- * Loads all price overrides from the database and displays them in a
- * formatted table.
+ * Loads all price overrides from the database and displays them
+ * using the shared Table component via Ink.
  */
 export async function overridesListCommand(
   opts: OverridesListOptions,
@@ -175,47 +176,7 @@ export async function overridesListCommand(
 
   try {
     const overrides = repo.getPriceOverrides();
-
-    if (overrides.length === 0) {
-      console.log('No price overrides configured.');
-      console.log('Use `daybook overrides set <asset> <date> <price>` to add one.');
-      return;
-    }
-
-    console.log(`${overrides.length} price override(s):`);
-    console.log('');
-
-    // Column headers
-    const headers = ['ID', 'Asset', 'Date', 'Price (USD)', 'Note', 'Created At'];
-
-    // Build row data
-    const rows = overrides.map(o => [
-      o.id,
-      o.asset,
-      formatDay(o.day),
-      o.priceUsd,
-      o.note ?? '',
-      formatTimestamp(o.createdAt),
-    ]);
-
-    // Compute column widths
-    const colWidths = headers.map((h, i) => {
-      const dataMax = Math.max(...rows.map(r => r[i]!.length));
-      return Math.max(h.length, dataMax);
-    });
-
-    // Render header
-    const headerLine = '  ' + headers.map((h, i) => h.padEnd(colWidths[i]!)).join('  ');
-    const divider = '  ' + colWidths.map(w => '-'.repeat(w)).join('  ');
-
-    console.log(headerLine);
-    console.log(divider);
-
-    // Render rows
-    for (const row of rows) {
-      const line = '  ' + row.map((val, i) => val.padEnd(colWidths[i]!)).join('  ');
-      console.log(line);
-    }
+    renderOverridesList(overrides);
   } finally {
     db.close();
   }
