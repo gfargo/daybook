@@ -14,6 +14,7 @@
 import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { LedgerEntry, LedgerEntryType } from '@daybook/ledger';
+import { color, glyph, Header, EmptyState } from '../ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Constants
@@ -60,10 +61,7 @@ function formatTimestamp(date: Date): string {
   return date.toISOString().slice(0, 19);
 }
 
-/**
- * Format the asset legs of an entry as a compact string.
- * Fee legs are prefixed with `(fee)`.
- */
+/** Format the asset legs of an entry as a compact string. */
 function formatLegs(entry: LedgerEntry): string {
   return entry.legs
     .map(leg => {
@@ -73,13 +71,8 @@ function formatLegs(entry: LedgerEntry): string {
     .join(' / ');
 }
 
-/**
- * Collect the backing RawEvent types from the entry's rawEventIds.
- * Since we only have the IDs (not the full events), we extract the
- * source prefix as a proxy for the event type context.
- */
+/** Extract source prefixes from rawEventIds as a proxy for context. */
 function formatBackingTypes(entry: LedgerEntry): string {
-  // rawEventIds look like "coinbase:xxx", "eth:xxx", "kraken:xxx"
   const sources = new Set(
     entry.rawEventIds.map(id => {
       const colonIdx = id.indexOf(':');
@@ -100,9 +93,10 @@ interface EntryRowProps {
 
 /** Renders a single unclassified entry row. */
 function EntryRow({ entry, isSelected }: EntryRowProps): React.ReactElement {
+  const cursor = isSelected ? `${glyph('chevron')} ` : '  ';
   return (
     <Box>
-      <Text>{isSelected ? '▸ ' : '  '}</Text>
+      <Text>{isSelected ? color.note(cursor) : cursor}</Text>
       <Box width={14}>
         <Text bold={isSelected}>{truncate(entry.id, 12)}</Text>
       </Box>
@@ -110,7 +104,7 @@ function EntryRow({ entry, isSelected }: EntryRowProps): React.ReactElement {
         <Text>{formatTimestamp(entry.timestamp)}</Text>
       </Box>
       <Box width={14}>
-        <Text dimColor>{formatBackingTypes(entry)}</Text>
+        <Text>{color.stamp(formatBackingTypes(entry))}</Text>
       </Box>
       <Box>
         <Text>{formatLegs(entry)}</Text>
@@ -131,12 +125,12 @@ interface TypeSelectorProps {
 function TypeSelector({ selectedIndex }: TypeSelectorProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-      <Text bold>Select type (↑/↓ to navigate, Enter to confirm, Esc/q to cancel):</Text>
+      <Text bold>{color.paper('Select type (↑/↓ to navigate, Enter to confirm, Esc/q to cancel):')}</Text>
       {ENTRY_TYPES.map((type, i) => (
         <Box key={type}>
-          <Text>{i === selectedIndex ? '▸ ' : '  '}</Text>
+          <Text>{i === selectedIndex ? `${glyph('chevron')} ` : '  '}</Text>
           {i === selectedIndex ? (
-            <Text bold color="cyan">{type}</Text>
+            <Text bold>{color.note(type)}</Text>
           ) : (
             <Text>{type}</Text>
           )}
@@ -180,29 +174,24 @@ export function UnclassifiedReview({
 
   useInput((input, key) => {
     if (mode === 'listing') {
-      // ── List navigation ──────────────────────────────────────────
       if (key.upArrow) {
         setListIndex(prev => Math.max(0, prev - 1));
       } else if (key.downArrow) {
         setListIndex(prev => Math.min(remaining.length - 1, prev + 1));
       } else if (key.return) {
-        // Enter → open type selector for the selected entry
         if (remaining.length > 0) {
           setTypeIndex(0);
           setMode('selecting');
         }
       } else if (input === 'q') {
-        // Quit the review
         handleDone(overrideCount);
       }
     } else if (mode === 'selecting') {
-      // ── Type selection ───────────────────────────────────────────
       if (key.upArrow) {
         setTypeIndex(prev => Math.max(0, prev - 1));
       } else if (key.downArrow) {
         setTypeIndex(prev => Math.min(ENTRY_TYPES.length - 1, prev + 1));
       } else if (key.return) {
-        // Confirm type selection
         const entry = remaining[listIndex]!;
         const selectedType = ENTRY_TYPES[typeIndex]!;
         onOverride(entry, selectedType);
@@ -213,47 +202,43 @@ export function UnclassifiedReview({
         setRemaining(newRemaining);
         setMode('listing');
 
-        // Adjust list index if we removed the last item
         if (listIndex >= newRemaining.length && newRemaining.length > 0) {
           setListIndex(newRemaining.length - 1);
         }
 
-        // Auto-exit when list is empty
         if (newRemaining.length === 0) {
           handleDone(newCount);
         }
       } else if (key.escape || input === 'q') {
-        // Cancel type selection → return to list
         setMode('listing');
       }
     }
   });
 
-  // ── Empty state (should not normally render — auto-exit handles it) ──
   if (remaining.length === 0) {
-    return <Text>No unclassified entries remaining.</Text>;
+    return <EmptyState title="No unclassified entries remaining" />;
   }
 
   return (
     <Box flexDirection="column" paddingLeft={1} paddingTop={1} paddingBottom={1}>
-      <Text bold>Unclassified Event Review ({remaining.length} remaining)</Text>
-      <Text dimColor>↑/↓ navigate · Enter select · q quit</Text>
+      <Header>Unclassified event review ({remaining.length} remaining)</Header>
+      <Text>{color.paper('↑/↓ navigate · Enter select · q quit')}</Text>
       <Text> </Text>
 
       {/* Header */}
       <Box>
         <Text>  </Text>
         <Box width={14}>
-          <Text bold>ID</Text>
+          <Text bold>{color.paper('ID')}</Text>
         </Box>
         <Box width={21}>
-          <Text bold>Timestamp</Text>
+          <Text bold>{color.paper('Timestamp')}</Text>
         </Box>
         <Box width={14}>
-          <Text bold>Source</Text>
+          <Text bold>{color.paper('Source')}</Text>
         </Box>
         <Box>
-          <Text bold>Legs</Text>
+          <Text bold>{color.paper('Legs')}</Text>
         </Box>
       </Box>
 

@@ -18,6 +18,7 @@ import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import Decimal from 'decimal.js';
 import type { Lot, DisposalResult } from '@daybook/tax';
+import { color, glyph, Header, EmptyState } from '../ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Props
@@ -86,11 +87,13 @@ interface LotRowProps {
 function LotRow({ lot, isSelected, isCursor, disposedAt }: LotRowProps): React.ReactElement {
   const days = holdingDays(lot.acquiredAt, disposedAt);
   const term = days > 365 ? 'long' : 'short';
+  const termColor = term === 'long' ? color.gain : color.caution;
+  const cursor = isCursor ? `${glyph('chevron')} ` : '  ';
 
   return (
     <Box>
-      <Text>{isCursor ? '▸ ' : '  '}</Text>
-      <Text>{isSelected ? '[✓] ' : '[ ] '}</Text>
+      <Text>{isCursor ? color.note(cursor) : cursor}</Text>
+      <Text>{isSelected ? `${glyph('check')} ` : '[ ] '}</Text>
       <Box width={14}>
         <Text bold={isCursor}>{truncate(lot.id, 12)}</Text>
       </Box>
@@ -104,9 +107,7 @@ function LotRow({ lot, isSelected, isCursor, disposedAt }: LotRowProps): React.R
         <Text>${lot.unitCostUsd}</Text>
       </Box>
       <Box width={12}>
-        <Text color={term === 'long' ? 'green' : 'yellow'}>
-          {formatHolding(days)} ({term})
-        </Text>
+        <Text>{termColor(`${formatHolding(days)} (${term})`)}</Text>
       </Box>
     </Box>
   );
@@ -163,7 +164,6 @@ export function LotPicker({ disposals, onDone }: LotPickerProps): React.ReactEle
     } else if (key.downArrow) {
       setCursorIndex(prev => Math.min(lots.length - 1, prev + 1));
     } else if (input === ' ') {
-      // Toggle lot selection
       const lot = lots[cursorIndex];
       if (!lot) return;
 
@@ -177,7 +177,6 @@ export function LotPicker({ disposals, onDone }: LotPickerProps): React.ReactEle
         return next;
       });
     } else if (key.return) {
-      // Confirm selection — only if total covers the disposal
       const requiredAmount = new Decimal(current.disposal.amount);
       let total = new Decimal(0);
       for (const lot of lots) {
@@ -187,7 +186,6 @@ export function LotPicker({ disposals, onDone }: LotPickerProps): React.ReactEle
       }
 
       if (total.gte(requiredAmount)) {
-        // Record selections: take exactly what's needed from each lot
         let remaining = requiredAmount;
         for (const lot of lots) {
           if (!selectedLotIds.has(lot.id)) continue;
@@ -202,21 +200,18 @@ export function LotPicker({ disposals, onDone }: LotPickerProps): React.ReactEle
         advanceToNext(allSelections, skippedIndices);
       }
     } else if (input === 's') {
-      // Skip this disposal — FIFO fallback
       skippedIndices.add(disposalIndex);
       advanceToNext(allSelections, skippedIndices);
     }
   });
 
-  // ── Done state ──────────────────────────────────────────────────────
   if (!current) {
-    return <Text>Lot selection complete.</Text>;
+    return <EmptyState title="Lot selection complete" />;
   }
 
   const { disposal, availableLots } = current;
   const requiredAmount = new Decimal(disposal.amount);
 
-  // Compute running total of selected lots
   let selectedTotal = new Decimal(0);
   for (const lot of availableLots) {
     if (selectedLotIds.has(lot.id)) {
@@ -229,32 +224,37 @@ export function LotPicker({ disposals, onDone }: LotPickerProps): React.ReactEle
 
   return (
     <Box flexDirection="column" paddingLeft={1} paddingTop={1} paddingBottom={1}>
-      <Text bold>
-        Disposal {disposalIndex + 1} of {disposals.length}
-      </Text>
-      <Text>
-        Asset: <Text bold>{disposal.asset}</Text>  Amount: <Text bold>{disposal.amount}</Text>  Date: {formatDate(disposal.disposedAt)}
-      </Text>
-      <Text dimColor>Space toggle · Enter confirm · s skip (FIFO) · ↑/↓ navigate</Text>
+      <Header>Disposal {disposalIndex + 1} of {disposals.length}</Header>
+      <Box>
+        <Text>{color.paper('Asset:')} </Text>
+        <Text bold>{disposal.asset}</Text>
+        <Text>  </Text>
+        <Text>{color.paper('Amount:')} </Text>
+        <Text bold>{disposal.amount}</Text>
+        <Text>  </Text>
+        <Text>{color.paper('Date:')} </Text>
+        <Text>{formatDate(disposal.disposedAt)}</Text>
+      </Box>
+      <Text>{color.paper('Space toggle · Enter confirm · s skip (FIFO) · ↑/↓ navigate')}</Text>
       <Text> </Text>
 
       {/* Lot table header */}
       <Box>
         <Text>      </Text>
         <Box width={14}>
-          <Text bold>Lot ID</Text>
+          <Text bold>{color.paper('Lot ID')}</Text>
         </Box>
         <Box width={12}>
-          <Text bold>Acquired</Text>
+          <Text bold>{color.paper('Acquired')}</Text>
         </Box>
         <Box width={16}>
-          <Text bold>Amount</Text>
+          <Text bold>{color.paper('Amount')}</Text>
         </Box>
         <Box width={14}>
-          <Text bold>Unit Cost</Text>
+          <Text bold>{color.paper('Unit Cost')}</Text>
         </Box>
         <Box width={12}>
-          <Text bold>Holding</Text>
+          <Text bold>{color.paper('Holding')}</Text>
         </Box>
       </Box>
 
@@ -272,16 +272,15 @@ export function LotPicker({ disposals, onDone }: LotPickerProps): React.ReactEle
       {/* Running total */}
       <Text> </Text>
       <Box>
-        <Text>
-          Selected: <Text bold color={covered ? 'green' : 'yellow'}>{selectedTotal.toString()}</Text>
-          {' / '}
-          <Text bold>{requiredAmount.toString()}</Text>
-          {covered ? (
-            <Text color="green"> ✓ covered — press Enter to confirm</Text>
-          ) : (
-            <Text color="yellow"> ({remainingStr} remaining)</Text>
-          )}
-        </Text>
+        <Text>{color.paper('Selected:')} </Text>
+        <Text bold>{covered ? color.gain(selectedTotal.toString()) : color.caution(selectedTotal.toString())}</Text>
+        <Text> / </Text>
+        <Text bold>{requiredAmount.toString()}</Text>
+        {covered ? (
+          <Text> {color.gain(`${glyph('check')} covered — press Enter to confirm`)}</Text>
+        ) : (
+          <Text> {color.caution(`(${remainingStr} remaining)`)}</Text>
+        )}
       </Box>
     </Box>
   );
