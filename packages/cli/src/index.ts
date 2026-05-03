@@ -28,7 +28,7 @@ const program = new Command();
 program
   .name('daybook')
   .description('Self-hosted crypto wallet auditing and tax reporting')
-  .version('0.0.0');
+  .version('0.1.0');
 
 // ─── daybook init ────────────────────────────────────────────────────────
 
