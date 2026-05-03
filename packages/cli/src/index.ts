@@ -2,17 +2,8 @@
 /**
  * daybook — command-line interface
  *
- * Available commands:
- *   daybook init                                   — create config + DB
- *   daybook account add <id> --source <s> --identifier <addr>  — add account
- *   daybook account list                           — show all accounts
- *   daybook sync --source coinbase --file <path>   — import a Coinbase CSV
- *   daybook events count                           — counts by RawEventType
- *   daybook events list [--limit N]                — preview recent events
- *   daybook classify                               — run classifier rules
- *   daybook export <year>                          — export tax-ready CSV
- *   daybook compare <year>                         — compare cost-basis methods
- *   daybook overrides set|list|remove              — manage price overrides
+ * Self-hosted crypto wallet auditing and tax reporting.
+ * Run `daybook --help` for a list of commands.
  */
 
 import { Command } from 'commander';
@@ -39,118 +30,173 @@ program
   .description('Self-hosted crypto wallet auditing and tax reporting')
   .version('0.0.0');
 
-// daybook init
+// ─── daybook init ────────────────────────────────────────────────────────
+
 program
   .command('init')
-  .description('Initialize a new daybook workspace (config + database)')
-  .option('--config <path>', 'Path to config file (default: ~/.daybook/config.json)')
+  .description('Create config and database at ~/.daybook/')
+  .option('--config <path>', 'config file path (default: ~/.daybook/config.json)')
+  .addHelpText('after', `
+Examples:
+  daybook init
+  daybook init --config ~/custom/config.json`)
   .action(initCommand);
 
-// daybook account ...
-const account = program.command('account').description('Manage accounts');
+// ─── daybook account ─────────────────────────────────────────────────────
+
+const account = program
+  .command('account')
+  .description('Add and list source accounts');
 
 account
   .command('add <id>')
-  .description('Add an account')
-  .requiredOption('--source <id>', 'Source: coinbase, eth, polygon, etc.')
-  .requiredOption('--identifier <id>', 'Wallet address or exchange account identifier')
-  .option('--label <text>', 'Optional human-readable label')
-  .option('--config <path>')
+  .description('Register a new source account')
+  .requiredOption('--source <id>', 'source type: coinbase, kraken, eth, polygon')
+  .requiredOption('--identifier <id>', 'wallet address or exchange account email')
+  .option('--label <text>', 'human-readable label for this account')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook account add main-coinbase --source coinbase --identifier you@example.com
+  daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"`)
   .action(accountAddCommand);
 
 account
   .command('list')
-  .description('List configured accounts')
-  .option('--format <fmt>', 'Output format: json')
-  .option('--config <path>')
+  .description('Show all configured accounts')
+  .option('--format <fmt>', 'output format: json')
+  .option('--config <path>', 'config file path')
   .action(accountListCommand);
 
-// daybook sync
+// ─── daybook sync ────────────────────────────────────────────────────────
+
 program
   .command('sync')
-  .description('Sync events from a configured source')
-  .requiredOption('--source <id>', 'Source: coinbase, eth, polygon, ...')
-  .option('--file <path>', 'For CSV-import sources, path to the CSV file')
-  .option('--account <id>', 'Account to sync into (defaults to first matching source)')
-  .option('--include-failed-gas', 'Include gas costs from failed EVM transactions (requires ETHERSCAN_API_KEY)')
-  .option('--from <date|block>', 'Sync only transfers after this date (ISO 8601) or block number (EVM sources only)')
-  .option('--config <path>')
+  .description('Pull new events from a source and persist them')
+  .requiredOption('--source <id>', 'source type: coinbase, kraken, eth, polygon')
+  .option('--file <path>', 'CSV file path (required for coinbase, kraken)')
+  .option('--account <id>', 'target account (defaults to first matching source)')
+  .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
+  .option('--from <date|block>', 'sync from this date (ISO 8601) or block number (EVM only)')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook sync --source coinbase --file ~/Downloads/Coinbase.csv
+  daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
+  daybook sync --source eth
+  daybook sync --source eth --from 2024-01-01
+  daybook sync --source eth --include-failed-gas`)
   .action(syncCommand);
 
-// daybook events ...
-const events = program.command('events').description('Inspect ingested events');
+// ─── daybook events ──────────────────────────────────────────────────────
+
+const events = program
+  .command('events')
+  .description('Inspect ingested raw events');
 
 events
   .command('count')
-  .description('Count events grouped by RawEventType')
-  .option('--account <id>', 'Filter to one account')
-  .option('--source <id>', 'Filter to one source')
-  .option('--format <fmt>', 'Output format: json')
-  .option('--config <path>')
+  .description('Count events grouped by type')
+  .option('--account <id>', 'filter to one account')
+  .option('--source <id>', 'filter to one source')
+  .option('--format <fmt>', 'output format: json')
+  .option('--config <path>', 'config file path')
   .action(eventsCountCommand);
 
 events
   .command('list')
-  .description('List recent events (default 20)')
-  .option('--limit <n>', 'How many events to show', '20')
-  .option('--type <t>', 'Filter to one RawEventType')
-  .option('--source <id>', 'Filter to one source')
-  .option('--account <id>', 'Filter to one account')
-  .option('--format <fmt>', 'Output format: json')
-  .option('--config <path>')
+  .description('Browse recent events in a table')
+  .option('--limit <n>', 'number of events to show', '20')
+  .option('--type <t>', 'filter by event type (e.g. trade, income, transfer)')
+  .option('--source <id>', 'filter to one source')
+  .option('--account <id>', 'filter to one account')
+  .option('--format <fmt>', 'output format: json')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook events list
+  daybook events list --type trade --limit 50
+  daybook events list --source eth --format json | jq '.[].type'`)
   .action(eventsListCommand);
 
-// daybook classify
+// ─── daybook classify ────────────────────────────────────────────────────
+
 program
   .command('classify')
-  .description('Run classifier rules over ingested events')
-  .option('--dry-run', 'Preview what would change without writing to the database')
-  .option('--review', 'Interactively review and override unclassified entries after classification')
-  .option('--no-review', 'Skip interactive review of unclassified entries')
-  .option('--config <path>')
+  .description('Run the 7-rule classifier chain over all ingested events')
+  .option('--dry-run', 'preview changes without writing to the database')
+  .option('--review', 'interactively review unclassified entries after classification')
+  .option('--no-review', 'skip interactive review')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook classify
+  daybook classify --dry-run
+  daybook classify --review`)
   .action(classifyCommand);
 
-// daybook export <year>
+// ─── daybook export ──────────────────────────────────────────────────────
+
 program
   .command('export <year>')
-  .description('Export tax-ready CSV for a given year')
-  .option('--method <FIFO|HIFO|LIFO|specific-id>', 'Cost-basis method')
-  .option('--output <path>', 'CSV output path')
-  .option('--lot-selections <path>', 'JSON file with lot selections for specific-id method')
-  .option('--no-wash-sale-flag', 'Omit the Wash Sale? column from the CSV export')
-  .option('--config <path>')
+  .description('Generate a tax-ready CSV for the given year')
+  .option('--method <method>', 'cost-basis method: FIFO, HIFO, LIFO, or specific-id (default: FIFO)')
+  .option('--output <path>', 'CSV output path (default: ./daybook-<year>-<method>.csv)')
+  .option('--lot-selections <path>', 'replay specific-id lot selections from a JSON file')
+  .option('--no-wash-sale-flag', 'omit the Wash Sale? column from the CSV')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook export 2024
+  daybook export 2024 --method HIFO --output ./taxes-2024.csv
+  daybook export 2024 --method specific-id
+  daybook export 2024 --method specific-id --lot-selections ./selections.json`)
   .action(exportCommand);
 
-// daybook compare <year>
+// ─── daybook compare ─────────────────────────────────────────────────────
+
 program
   .command('compare <year>')
-  .description('Compare tax outcomes across cost-basis methods')
-  .option('--format <fmt>', 'Output format: json')
-  .option('--config <path>')
+  .description('Compare FIFO, HIFO, and LIFO tax outcomes side by side')
+  .option('--format <fmt>', 'output format: json')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook compare 2024
+  daybook compare 2024 --format json`)
   .action(compareCommand);
 
-// daybook overrides ...
-const overrides = program.command('overrides').description('Manage price overrides');
+// ─── daybook overrides ───────────────────────────────────────────────────
+
+const overrides = program
+  .command('overrides')
+  .description('Manage manual price overrides for unpriced tokens');
 
 overrides
   .command('set <asset> <date> <price>')
-  .description('Set a manual price override')
-  .option('--note <text>', 'Optional note for this override')
-  .option('--config <path>')
+  .description('Set a price override (YYYY-MM-DD, USD)')
+  .option('--note <text>', 'optional note explaining this override')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook overrides set SOMETOKEN 2024-03-15 0.50
+  daybook overrides set ETH 2024-01-01 2305.73 --note "Manual correction"`)
   .action(overridesSetCommand);
 
 overrides
   .command('list')
-  .description('List all price overrides')
-  .option('--format <fmt>', 'Output format: json')
-  .option('--config <path>')
+  .description('Show all price overrides')
+  .option('--format <fmt>', 'output format: json')
+  .option('--config <path>', 'config file path')
   .action(overridesListCommand);
 
 overrides
   .command('remove <id>')
-  .description('Remove a price override by ID')
-  .option('--config <path>')
+  .description('Delete a price override by its ID')
+  .option('--config <path>', 'config file path')
   .action(overridesRemoveCommand);
+
+// ─── Parse and run ───────────────────────────────────────────────────────
 
 program.parseAsync(process.argv).catch(err => {
   console.error(formatError(err));
