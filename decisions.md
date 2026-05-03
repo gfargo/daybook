@@ -2,7 +2,7 @@
 
 Locked-in product decisions for daybook v1. Living document — update when something changes, with date + rationale.
 
-Last updated: 2026-05-01
+Last updated: 2026-05-02
 
 ## v1 scope
 
@@ -11,7 +11,7 @@ Last updated: 2026-05-01
 | **Tax output** | Tax-ready CSV first; Form 8949 + Schedule D + TXF in v2 | Hand to CPA initially. Forms generation is significant work that doesn't block having a working tool. |
 | **Sync model** | On-demand CLI only (`daybook sync`) | Year-end-tax-prep mental model. Each run is a snapshot. No daemon, no reorg handling, no missed-event paranoia. |
 | **Sources in v1** | Coinbase + Ethereum mainnet + Polygon | Smallest set that covers the bulk of activity. |
-| **Sources in v1.1** | Kraken (adapter is small lift, validates double-entry handling) | First post-v1 milestone. Data model already supports it. |
+| **Sources in v1.1** | Kraken CSV adapter (complete) | First post-v1 milestone. Data model already supports it. Validates double-entry handling. |
 | **License** | MIT | Maximum reusability. Easy to relicense later if needed. |
 
 ## Defaults (override if these don't fit)
@@ -27,9 +27,9 @@ Last updated: 2026-05-01
 
 ## Things explicitly deferred
 
-These are *known* concerns that v1 will not address. Captured here so future-us doesn't re-derive them:
+These are *known* concerns that v1/v1.1 will not address. Captured here so future-us doesn't re-derive them:
 
-- **Wash-sale rules.** Currently don't apply to crypto under US tax law. Bills have been proposed for years. Ship a flag in the `tax` package output but don't compute disallowances.
+- **Wash-sale rules.** Currently don't apply to crypto under US tax law. Bills have been proposed for years. v1.1 ships informational wash-sale flagging (±30 calendar days) on loss disposals — no disallowance computation.
 - **Like-kind treatment.** Pre-2018 trade-for-trade swaps. Not relevant for current activity.
 - **Reorg handling.** v1 is on-demand only; reorgs are a daemon-mode concern.
 - **Multi-user / family / LLC accounts.** v1 is single-identity. Multi-account support is *separate accounts under one identity*, not multi-identity.
@@ -41,7 +41,7 @@ These are *known* concerns that v1 will not address. Captured here so future-us 
 
 Things to decide before relevant work, not blocking now:
 
-1. Pricing source(s) — CoinGecko vs CryptoCompare vs Alchemy vs Coinbase Spot. (See pricing-strategy doc when written.)
-2. Cost-basis default — FIFO or HIFO? (FIFO is the IRS default. HIFO usually minimizes tax. The CSV exporter should support both via a flag.)
-3. DEX router catalog — do we ship a curated JSON file or detect routers via heuristic + user override?
+1. ~~Pricing source(s) — CoinGecko vs CryptoCompare vs Alchemy vs Coinbase Spot.~~ **Resolved.** v1 uses a priority chain: source-reported → CoinGecko → manual override. Cached in SQLite.
+2. ~~Cost-basis default — FIFO or HIFO?~~ **Resolved.** FIFO is the default (IRS default). HIFO available via `--method HIFO` flag. `daybook compare` shows both side by side.
+3. ~~DEX router catalog — do we ship a curated JSON file or detect routers via heuristic + user override?~~ **Resolved.** Curated JSON file at `packages/classifier/src/dex-routers.json` (Uniswap V2/V3, MetaMask Swap Router, QuickSwap). Bridge catalog at `packages/classifier/src/bridges.json` (Celer cBridge V2, Polygon PoS Bridge).
 4. Repo public from day one or private until v1 ships?

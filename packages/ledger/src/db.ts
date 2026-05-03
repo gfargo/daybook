@@ -64,6 +64,7 @@ function applyMigrations(db: DatabaseInstance): void {
 
   const migrations = [
     { id: '001_initial', file: 'migrations/001_initial.sql' },
+    { id: '002_price_overrides', file: 'migrations/002_price_overrides.sql' },
     // Future migrations append here.
   ];
 

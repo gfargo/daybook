@@ -5,13 +5,16 @@
  * sync produced the right counts and as a debugging surface.
  */
 
+import React from 'react';
+import { render } from 'ink';
 import {
-  createRepo,
-  openDatabase,
-  type RawEventType,
-  type SourceId,
+    createRepo,
+    openDatabase,
+    type RawEventType,
+    type SourceId,
 } from '@daybook/ledger';
 import { expandPath, loadConfig } from '../config.js';
+import { EventsTable } from './EventsTable.js';
 
 export interface EventsCountOptions {
   account?: string;
@@ -44,12 +47,22 @@ export async function eventsCountCommand(
   }
 }
 
+/** Options for `daybook events list`. */
 export interface EventsListOptions {
   limit: string;
   type?: string;
+  source?: string;
+  account?: string;
   config?: string;
 }
 
+/**
+ * Handler for `daybook events list`.
+ *
+ * Applies `--type`, `--source`, and `--account` filters via the repository
+ * query, respects `--limit` (default 20), and renders the result using the
+ * Ink-based EventsTable component.
+ */
 export async function eventsListCommand(
   opts: EventsListOptions,
 ): Promise<void> {
@@ -59,19 +72,14 @@ export async function eventsListCommand(
   const limit = Number.parseInt(opts.limit, 10);
   const events = repo.getRawEvents({
     ...(opts.type ? { type: opts.type as RawEventType } : {}),
+    ...(opts.source ? { source: opts.source as SourceId } : {}),
+    ...(opts.account ? { accountId: opts.account } : {}),
     limit,
   });
   db.close();
 
-  if (events.length === 0) {
-    console.log('No events match. Run `daybook sync ...` or relax the filter.');
-    return;
-  }
-  for (const e of events) {
-    const ts = e.timestamp.toISOString().slice(0, 19);
-    const legSummary = e.legs
-      .map(l => `${l.amount} ${l.asset}${l.feeFlag ? ' (fee)' : ''}`)
-      .join(' / ');
-    console.log(`  [${ts}] ${e.type.padEnd(18)} ${legSummary}`);
-  }
+  const { unmount } = render(
+    React.createElement(EventsTable, { events }),
+  );
+  unmount();
 }

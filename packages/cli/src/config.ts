@@ -101,7 +101,7 @@ export function expandPath(path: string): string {
 // ─────────────────────────────────────────────────────────────────────────
 
 export class ConfigError extends Error {
-  constructor(message: string, readonly cause?: unknown) {
+  constructor(message: string, override readonly cause?: unknown) {
     super(message);
     this.name = 'ConfigError';
   }

@@ -1,0 +1,23 @@
+[
+  { "chain": 1, "address": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", "protocol": "Uniswap", "version": "V2 Router 2" },
+  { "chain": 1, "address": "0xe592427a0aece92de3edee1f18e0157c05861564", "protocol": "Uniswap", "version": "V3 SwapRouter" },
+  { "chain": 1, "address": "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45", "protocol": "Uniswap", "version": "V3 SwapRouter02" },
+  { "chain": 1, "address": "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad", "protocol": "Uniswap", "version": "V3 Universal Router" },
+  { "chain": 1, "address": "0xef1c6e67703c7bd7107eed8303fbe6ec2554bf6b", "protocol": "Uniswap", "version": "Universal Router 2" },
+  { "chain": 1, "address": "0x881d40237659c251811cec9c364ef91dc08d300c", "protocol": "MetaMask", "version": "Swap Router" },
+  { "chain": 1, "address": "0x74de5d4fcbf63e00296fd95d33236b9794016631", "protocol": "MetaMask", "version": "Swaps Spender" },
+  { "chain": 1, "address": "0x6000da47483062a0d734ba3dc7576ce6a0b645c4", "protocol": "UniswapX", "version": "Dutch Order Reactor" },
+  { "chain": 1, "address": "0x4c9a2bd661d640da3634a4988a9bd2bc0f18e5a9", "protocol": "Bancor", "version": "Converter 571" },
+  { "chain": 1, "address": "0x1111111254eeb25477b68fb85ed929f73a960582", "protocol": "1inch", "version": "V5 Router" },
+  { "chain": 1, "address": "0x111111125421ca6dc452d289314280a0f8842a65", "protocol": "1inch", "version": "V6 Router" },
+  { "chain": 1, "address": "0xdef1c0ded9bec7f1a1670819833240f027b25eff", "protocol": "0x", "version": "Exchange Proxy" },
+  { "chain": 1, "address": "0xba12222222228d8ba445958a75a0704d566bf2c8", "protocol": "Balancer", "version": "V2 Vault" },
+  { "chain": 1, "address": "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f", "protocol": "SushiSwap", "version": "Router" },
+  { "chain": 137, "address": "0xa5e0829caced8ffdd4de3c43696c57f7d7a678ff", "protocol": "QuickSwap", "version": "Router" },
+  { "chain": 137, "address": "0x1b02da8cb0d097eb8d57a175b88c7d8b47997506", "protocol": "SushiSwap", "version": "Router (Polygon)" },
+  { "chain": 137, "address": "0xe592427a0aece92de3edee1f18e0157c05861564", "protocol": "Uniswap", "version": "V3 SwapRouter (Polygon)" },
+  { "chain": 137, "address": "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45", "protocol": "Uniswap", "version": "V3 SwapRouter02 (Polygon)" },
+  { "chain": 137, "address": "0x1111111254eeb25477b68fb85ed929f73a960582", "protocol": "1inch", "version": "V5 Router (Polygon)" },
+  { "chain": 137, "address": "0xdef1c0ded9bec7f1a1670819833240f027b25eff", "protocol": "0x", "version": "Exchange Proxy (Polygon)" },
+  { "chain": 137, "address": "0xba12222222228d8ba445958a75a0704d566bf2c8", "protocol": "Balancer", "version": "V2 Vault (Polygon)" }
+]

@@ -14,12 +14,12 @@
 
 import type { AssetLeg, RawEvent } from '@daybook/ledger';
 import {
-  parseAdvancedBuyNote,
-  parseBuyNote,
-  parseConvertNote,
-  parseReceiveNote,
-  parseSendNote,
-  parseWithdrawalNote,
+    parseAdvancedBuyNote,
+    parseBuyNote,
+    parseConvertNote,
+    parseReceiveNote,
+    parseSendNote,
+    parseWithdrawalNote,
 } from './notes.js';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -194,13 +194,13 @@ function buildBuy(
     {
       asset: row.asset,
       amount: row.quantityTransacted,
-      amountUsdReportedBySource: parseDollarString(row.subtotal) ?? undefined,
+      ...usdReported(parseDollarString(row.subtotal)),
     },
     // Fiat spent (negative)
     {
       asset: note.fiatCurrency,
       amount: negate(parseDollarString(row.total) ?? '0'),
-      amountUsdReportedBySource: parseDollarString(row.total) ?? undefined,
+      ...usdReported(parseDollarString(row.total)),
     },
   ];
   // Fee leg, if any
@@ -246,12 +246,12 @@ function buildSell(
     {
       asset: row.asset,
       amount: row.quantityTransacted, // already negative
-      amountUsdReportedBySource: absDollarString(row.subtotal) ?? undefined,
+      ...usdReported(absDollarString(row.subtotal)),
     },
     {
       asset: 'USD',
       amount: parseDollarString(row.total) ?? '0',
-      amountUsdReportedBySource: parseDollarString(row.total) ?? undefined,
+      ...usdReported(parseDollarString(row.total)),
     },
   ];
   const fee = parseDollarString(row.feesAndSpread);
@@ -288,12 +288,12 @@ function buildConvert(
     {
       asset: note.sentAsset,
       amount: negate(note.sentQuantity),
-      amountUsdReportedBySource: absDollarString(row.subtotal) ?? undefined,
+      ...usdReported(absDollarString(row.subtotal)),
     },
     {
       asset: note.receivedAsset,
       amount: note.receivedQuantity,
-      amountUsdReportedBySource: parseDollarString(row.total) ?? undefined,
+      ...usdReported(parseDollarString(row.total)),
     },
   ];
   // Convert fees/spread are baked into the total/subtotal diff.
@@ -331,7 +331,7 @@ function buildSend(
     {
       asset: row.asset,
       amount: row.quantityTransacted,
-      amountUsdReportedBySource: absDollarString(row.subtotal) ?? undefined,
+      ...usdReported(absDollarString(row.subtotal)),
     },
   ];
   return {
@@ -358,7 +358,7 @@ function buildReceive(
     {
       asset: row.asset,
       amount: row.quantityTransacted, // positive
-      amountUsdReportedBySource: parseDollarString(row.subtotal) ?? undefined,
+      ...usdReported(parseDollarString(row.subtotal)),
     },
   ];
   return {
@@ -385,7 +385,7 @@ function buildFiatOrCryptoDeposit(
     {
       asset: row.asset,
       amount: row.quantityTransacted,
-      amountUsdReportedBySource: parseDollarString(row.subtotal) ?? undefined,
+      ...usdReported(parseDollarString(row.subtotal)),
     },
   ];
   return {
@@ -412,7 +412,7 @@ function buildWithdrawal(
     {
       asset: row.asset,
       amount: row.quantityTransacted, // negative
-      amountUsdReportedBySource: absDollarString(row.subtotal) ?? undefined,
+      ...usdReported(absDollarString(row.subtotal)),
     },
   ];
   return {
@@ -445,7 +445,7 @@ function buildIncome(
       {
         asset: row.asset,
         amount: row.quantityTransacted,
-        amountUsdReportedBySource: parseDollarString(row.subtotal) ?? undefined,
+        ...usdReported(parseDollarString(row.subtotal)),
       },
     ],
     notes: row.notes || row.transactionType,
@@ -471,7 +471,7 @@ function buildPreliminaryInternalMove(
       {
         asset: row.asset,
         amount: row.quantityTransacted,
-        amountUsdReportedBySource: parseDollarString(row.subtotal) ?? undefined,
+        ...usdReported(parseDollarString(row.subtotal)),
       },
     ],
     notes: row.transactionType,
@@ -495,7 +495,7 @@ function buildUnknown(
       {
         asset: row.asset,
         amount: row.quantityTransacted,
-        amountUsdReportedBySource: parseDollarString(row.subtotal) ?? undefined,
+        ...usdReported(parseDollarString(row.subtotal)),
       },
     ],
     notes: row.notes,
@@ -506,6 +506,15 @@ function buildUnknown(
 // ─────────────────────────────────────────────────────────────────────────
 // Field-level helpers
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the optional `amountUsdReportedBySource` property using spread.
+ * With `exactOptionalPropertyTypes`, we can't assign `undefined` to an
+ * optional `string` property — we must omit the key entirely.
+ */
+function usdReported(value: string | null): { amountUsdReportedBySource: string } | Record<string, never> {
+  return value ? { amountUsdReportedBySource: value } : {};
+}
 
 /** "$2521.605" → "2521.605"; "-$10.54058" → "-10.54058"; "" → null. */
 export function parseDollarString(s: string): string | null {

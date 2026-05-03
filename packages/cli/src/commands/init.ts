@@ -37,7 +37,12 @@ export async function initCommand(opts: InitOptions): Promise<void> {
   let mirrored = 0;
   for (const account of config.accounts) {
     if (!repo.getAccount(account.id)) mirrored++;
-    repo.upsertAccount(account);
+    repo.upsertAccount({
+      id: account.id,
+      source: account.source,
+      identifier: account.identifier,
+      ...(account.label ? { label: account.label } : {}),
+    });
   }
   db.close();
 

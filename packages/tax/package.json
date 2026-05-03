@@ -14,12 +14,17 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
+    "build": "tsup src/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
     "test": "vitest run"
   },
   "dependencies": {
     "@daybook/ledger": "workspace:*",
     "csv-stringify": "^6.5.0",
     "decimal.js": "^10.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "better-sqlite3": "^11.0.0",
+    "fast-check": "^4.7.0"
   }
 }

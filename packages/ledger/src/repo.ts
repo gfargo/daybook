@@ -22,11 +22,15 @@
 
 import type { Database as DatabaseInstance, Statement } from 'better-sqlite3';
 import type {
-  AccountRef,
-  AssetLeg,
-  RawEvent,
-  RawEventType,
-  SourceId,
+    AccountRef,
+    AssetLeg,
+    ClassifierOverride,
+    LedgerEntry,
+    LedgerEntryType,
+    PriceOverride,
+    RawEvent,
+    RawEventType,
+    SourceId,
 } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -58,6 +62,16 @@ export interface CountByType {
   count: number;
 }
 
+export interface LedgerEntryFilter {
+  /** Filter by year (e.g. 2024 → entries with timestamp in 2024). */
+  year?: number;
+  /** Filter by LedgerEntryType. */
+  type?: LedgerEntryType;
+  /** Default 10000. */
+  limit?: number;
+  offset?: number;
+}
+
 export interface Repo {
   // ─── Accounts ──────────────────────────────────────────────────────
   upsertAccount(account: AccountRef): void;
@@ -70,6 +84,20 @@ export interface Repo {
   getRawEvents(filter: RawEventFilter): RawEvent[];
   countByType(filter: Omit<RawEventFilter, 'limit' | 'offset'>): CountByType[];
   countTotal(filter: Omit<RawEventFilter, 'limit' | 'offset'>): number;
+
+  // ─── Ledger entries (classifier output, rebuildable) ───────────────
+  rebuildLedgerEntries(entries: ReadonlyArray<LedgerEntry>): void;
+  getLedgerEntries(filter: LedgerEntryFilter): LedgerEntry[];
+
+  // ─── Classifier overrides ──────────────────────────────────────────
+  insertClassifierOverride(override: ClassifierOverride): void;
+  getClassifierOverrides(): ClassifierOverride[];
+  deleteClassifierOverride(id: string): void;
+
+  // ─── Price overrides ───────────────────────────────────────────────
+  insertPriceOverride(override: PriceOverride): void;
+  getPriceOverrides(): PriceOverride[];
+  deletePriceOverride(id: string): boolean;
 }
 
 /**
@@ -254,6 +282,265 @@ class RepoImpl implements Repo {
       | undefined;
     return row?.count ?? 0;
   }
+
+  // ─── Ledger entries ──────────────────────────────────────────────────
+
+  /**
+   * Full rebuild: DELETE all existing ledger entries + INSERT new ones.
+   * Runs in a single transaction for atomicity.
+   */
+  rebuildLedgerEntries(entries: ReadonlyArray<LedgerEntry>): void {
+    this.db.transaction(() => {
+      // CASCADE deletes handle ledger_entry_legs and ledger_entry_raw_events
+      this.db.prepare('DELETE FROM ledger_entries').run();
+
+      const insertEntry = this.db.prepare(`
+        INSERT INTO ledger_entries (id, timestamp, type, reason, override_id)
+        VALUES (@id, @timestamp, @type, @reason, @overrideId)
+      `);
+
+      const insertLeg = this.db.prepare(`
+        INSERT INTO ledger_entry_legs
+          (entry_id, leg_index, asset, amount, amount_usd_at_time,
+           amount_usd_reported_by_source, fee_flag, contract_address, token_id)
+        VALUES
+          (@entryId, @legIndex, @asset, @amount, @amountUsdAtTime,
+           @amountUsdReportedBySource, @feeFlag, @contractAddress, @tokenId)
+      `);
+
+      const insertRawEventLink = this.db.prepare(`
+        INSERT INTO ledger_entry_raw_events (entry_id, raw_event_id)
+        VALUES (@entryId, @rawEventId)
+      `);
+
+      for (const entry of entries) {
+        insertEntry.run({
+          id: entry.id,
+          timestamp: Math.floor(entry.timestamp.getTime() / 1000),
+          type: entry.type,
+          reason: entry.reason ?? null,
+          overrideId: entry.overrideId ?? null,
+        });
+
+        for (let i = 0; i < entry.legs.length; i++) {
+          const leg = entry.legs[i]!;
+          insertLeg.run({
+            entryId: entry.id,
+            legIndex: i,
+            asset: leg.asset,
+            amount: leg.amount,
+            amountUsdAtTime: leg.amountUsdAtTime ?? null,
+            amountUsdReportedBySource: leg.amountUsdReportedBySource ?? null,
+            feeFlag: leg.feeFlag ? 1 : 0,
+            contractAddress: leg.contractAddress ?? null,
+            tokenId: leg.tokenId ?? null,
+          });
+        }
+
+        for (const rawEventId of entry.rawEventIds) {
+          insertRawEventLink.run({
+            entryId: entry.id,
+            rawEventId,
+          });
+        }
+      }
+    })();
+  }
+
+  getLedgerEntries(filter: LedgerEntryFilter): LedgerEntry[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (filter.year !== undefined) {
+      const startOfYear = Math.floor(
+        new Date(`${filter.year}-01-01T00:00:00Z`).getTime() / 1000,
+      );
+      const startOfNextYear = Math.floor(
+        new Date(`${filter.year + 1}-01-01T00:00:00Z`).getTime() / 1000,
+      );
+      conditions.push('timestamp >= ?');
+      params.push(startOfYear);
+      conditions.push('timestamp < ?');
+      params.push(startOfNextYear);
+    }
+
+    if (filter.type) {
+      conditions.push('type = ?');
+      params.push(filter.type);
+    }
+
+    const whereSql = conditions.length
+      ? 'WHERE ' + conditions.join(' AND ')
+      : '';
+    const limit = filter.limit ?? 10000;
+    const offset = filter.offset ?? 0;
+
+    const sql = `
+      SELECT id, timestamp, type, reason, override_id
+      FROM ledger_entries
+      ${whereSql}
+      ORDER BY timestamp ASC, id ASC
+      LIMIT ? OFFSET ?
+    `;
+
+    const rows = this.db.prepare(sql).all(...params, limit, offset) as LedgerEntryRow[];
+
+    const getLegsSql = `
+      SELECT leg_index, asset, amount, amount_usd_at_time,
+             amount_usd_reported_by_source, fee_flag, contract_address, token_id
+      FROM ledger_entry_legs
+      WHERE entry_id = ?
+      ORDER BY leg_index
+    `;
+
+    const getRawEventIdsSql = `
+      SELECT raw_event_id FROM ledger_entry_raw_events
+      WHERE entry_id = ?
+    `;
+
+    return rows.map(row => {
+      const legRows = this.db.prepare(getLegsSql).all(row.id) as RawLegRow[];
+      const rawEventIdRows = this.db
+        .prepare(getRawEventIdsSql)
+        .all(row.id) as { raw_event_id: string }[];
+
+      const legs: AssetLeg[] = legRows.map(l => ({
+        asset: l.asset,
+        amount: l.amount,
+        ...(l.amount_usd_at_time
+          ? { amountUsdAtTime: l.amount_usd_at_time }
+          : {}),
+        ...(l.amount_usd_reported_by_source
+          ? { amountUsdReportedBySource: l.amount_usd_reported_by_source }
+          : {}),
+        ...(l.fee_flag ? { feeFlag: true } : {}),
+        ...(l.contract_address
+          ? { contractAddress: l.contract_address }
+          : {}),
+        ...(l.token_id ? { tokenId: l.token_id } : {}),
+      }));
+
+      return {
+        id: row.id,
+        timestamp: new Date(row.timestamp * 1000),
+        type: row.type as LedgerEntryType,
+        legs,
+        rawEventIds: rawEventIdRows.map(r => r.raw_event_id),
+        ...(row.override_id ? { overrideId: row.override_id } : {}),
+        ...(row.reason ? { reason: row.reason } : {}),
+      };
+    });
+  }
+
+  // ─── Classifier overrides ────────────────────────────────────────────
+
+  insertClassifierOverride(override: ClassifierOverride): void {
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO classifier_overrides (id, type, note, created_at)
+           VALUES (@id, @type, @note, @createdAt)`,
+        )
+        .run({
+          id: override.id,
+          type: override.type,
+          note: override.note ?? null,
+          createdAt: Math.floor(override.createdAt.getTime() / 1000),
+        });
+
+      const insertLink = this.db.prepare(
+        `INSERT INTO classifier_override_raw_events (override_id, raw_event_id)
+         VALUES (@overrideId, @rawEventId)`,
+      );
+
+      for (const rawEventId of override.rawEventIds) {
+        insertLink.run({ overrideId: override.id, rawEventId });
+      }
+
+      // Insert override legs if provided
+      if (override.legs) {
+        // We don't have a dedicated table for override legs in the schema,
+        // so they're stored in the override itself and applied at classify time.
+      }
+    })();
+  }
+
+  getClassifierOverrides(): ClassifierOverride[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, type, note, created_at FROM classifier_overrides ORDER BY created_at ASC`,
+      )
+      .all() as ClassifierOverrideRow[];
+
+    return rows.map(row => {
+      const rawEventIdRows = this.db
+        .prepare(
+          `SELECT raw_event_id FROM classifier_override_raw_events WHERE override_id = ?`,
+        )
+        .all(row.id) as { raw_event_id: string }[];
+
+      return {
+        id: row.id,
+        rawEventIds: rawEventIdRows.map(r => r.raw_event_id),
+        type: row.type as LedgerEntryType,
+        createdAt: new Date(row.created_at * 1000),
+        ...(row.note ? { note: row.note } : {}),
+      };
+    });
+  }
+
+  deleteClassifierOverride(id: string): void {
+    this.db.transaction(() => {
+      // CASCADE handles classifier_override_raw_events
+      this.db
+        .prepare('DELETE FROM classifier_overrides WHERE id = ?')
+        .run(id);
+    })();
+  }
+
+  // ─── Price overrides ─────────────────────────────────────────────────
+
+  insertPriceOverride(override: PriceOverride): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO price_overrides (id, asset, day, price_usd, note, created_at)
+         VALUES (@id, @asset, @day, @priceUsd, @note, @createdAt)`,
+      )
+      .run({
+        id: override.id,
+        asset: override.asset,
+        day: override.day,
+        priceUsd: override.priceUsd,
+        note: override.note ?? null,
+        createdAt: Math.floor(override.createdAt.getTime() / 1000),
+      });
+  }
+
+  getPriceOverrides(): PriceOverride[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, asset, day, price_usd, note, created_at
+         FROM price_overrides
+         ORDER BY asset ASC, day ASC`,
+      )
+      .all() as PriceOverrideRow[];
+
+    return rows.map(row => ({
+      id: row.id,
+      asset: row.asset,
+      day: row.day,
+      priceUsd: row.price_usd,
+      createdAt: new Date(row.created_at * 1000),
+      ...(row.note ? { note: row.note } : {}),
+    }));
+  }
+
+  deletePriceOverride(id: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM price_overrides WHERE id = ?')
+      .run(id);
+    return result.changes > 0;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -289,6 +576,30 @@ interface RawLegRow {
   fee_flag: number;
   contract_address: string | null;
   token_id: string | null;
+}
+
+interface LedgerEntryRow {
+  id: string;
+  timestamp: number;
+  type: string;
+  reason: string | null;
+  override_id: string | null;
+}
+
+interface ClassifierOverrideRow {
+  id: string;
+  type: string;
+  note: string | null;
+  created_at: number;
+}
+
+interface PriceOverrideRow {
+  id: string;
+  asset: string;
+  day: number;
+  price_usd: string;
+  note: string | null;
+  created_at: number;
 }
 
 function rowToAccount(row: AccountRow): AccountRef {

@@ -23,5 +23,6 @@ fixtures/private/
 *.swp
 
 .kiro
+.wiki
 docs
 CLAUDE.md

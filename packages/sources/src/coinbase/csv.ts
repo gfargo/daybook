@@ -25,9 +25,9 @@
 import { parse as parseCsv } from 'csv-parse/sync';
 import type { RawEvent } from '@daybook/ledger';
 import {
-  type CoinbaseCsvRow,
-  parseCoinbaseRow,
-  type ParseRowResult,
+    type CoinbaseCsvRow,
+    parseCoinbaseRow,
+    type ParseRowResult,
 } from './row.js';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ function mergeInternalMovePairs(
       timestamp: first.timestamp, // earlier of the two
       type: 'internal_move',
       legs: [...first.legs, ...second.legs],
-      notes: first.notes,
+      ...(first.notes ? { notes: first.notes } : {}),
       raw: { firstRow: first.raw, secondRow: second.raw },
     });
     consumed.add(first.id);
