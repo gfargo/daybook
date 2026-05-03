@@ -10,13 +10,11 @@
  *   - Income summary (staking, rewards, inflation) at FMV
  *   - Pricing module: source-reported → CoinGecko → manual override
  *
- * v2:
+ * v1.2:
  *   - Form 8949 PDF generation
- *   - Schedule D summary
+ *   - Schedule D PDF summary
  *   - TXF export for TurboTax
  *   - Specific-ID lot picker
- *
- * Pending implementation.
  */
 
 export type CostBasisMethod = 'FIFO' | 'HIFO' | 'LIFO' | 'Specific ID';
@@ -49,6 +47,21 @@ export type { CompareResult, MethodSummary } from './compare.js';
 // ─── CSV export ──────────────────────────────────────────────────────────
 export { formatCsv } from './csv-export.js';
 export type { FormatCsvOptions } from './csv-export.js';
+
+// ─── Form 8949 PDF export ────────────────────────────────────────────────
+export { formatForm8949, buildForm8949Data, renderForm8949Pdf, parseForm8949Pdf } from './form-8949.js';
+export type { CheckboxCategory, Form8949Row, Form8949Page, Form8949Data, Form8949Options } from './form-8949.js';
+
+// ─── Schedule D PDF export ───────────────────────────────────────────────
+export { formatScheduleD, buildScheduleDData, renderScheduleDPdf } from './schedule-d.js';
+export type { ScheduleDData } from './schedule-d.js';
+
+// ─── TXF export ──────────────────────────────────────────────────────────
+export { formatTxf, parseTxf } from './txf-export.js';
+export type { TxfRecord, TxfParseResult } from './txf-export.js';
+
+// ─── Format helpers ──────────────────────────────────────────────────────
+export { formatIrsDate, formatMoney } from './format-helpers.js';
 
 // ─── Wash sale ───────────────────────────────────────────────────────────
 export { applyWashSaleFlags } from './wash-sale.js';

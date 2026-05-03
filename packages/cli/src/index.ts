@@ -139,9 +139,11 @@ Examples:
 
 program
   .command('export <year>')
-  .description('Generate a tax-ready CSV for the given year')
+  .description('Generate a tax-ready export for the given year')
   .option('--method <method>', 'cost-basis method: FIFO, HIFO, LIFO, or specific-id (default: FIFO)')
-  .option('--output <path>', 'CSV output path (default: ./daybook-<year>-<method>.csv)')
+  .option('--format <fmt>', 'output format: csv, 8949, schedule-d, txf (default: csv)')
+  .option('--8949-checkbox <category>', 'Form 8949 checkbox category: A, B, or C (default: C)')
+  .option('--output <path>', 'output file path (default: ./daybook-<year>-<method>.<ext>)')
   .option('--lot-selections <path>', 'replay specific-id lot selections from a JSON file')
   .option('--no-wash-sale-flag', 'omit the Wash Sale? column from the CSV')
   .option('--config <path>', 'config file path')
@@ -149,6 +151,10 @@ program
 Examples:
   daybook export 2024
   daybook export 2024 --method HIFO --output ./taxes-2024.csv
+  daybook export 2024 --format 8949
+  daybook export 2024 --format 8949 --8949-checkbox A
+  daybook export 2024 --format schedule-d
+  daybook export 2024 --format txf
   daybook export 2024 --method specific-id
   daybook export 2024 --method specific-id --lot-selections ./selections.json`)
   .action(exportCommand);

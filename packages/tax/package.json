@@ -14,13 +14,15 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
+    "copy-templates": "mkdir -p dist/templates && cp src/templates/*.pdf dist/templates/",
+    "build": "tsup src/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean --onSuccess 'pnpm copy-templates'",
     "test": "vitest run"
   },
   "dependencies": {
     "@daybook/ledger": "workspace:*",
     "csv-stringify": "^6.5.0",
-    "decimal.js": "^10.4.3"
+    "decimal.js": "^10.4.3",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
