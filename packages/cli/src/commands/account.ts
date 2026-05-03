@@ -10,6 +10,7 @@
 
 import { createRepo, openDatabase } from '@daybook/ledger';
 import { type Config, expandPath, loadConfig, saveConfig } from '../config.js';
+import { writeJson } from '../ui/index.js';
 
 export interface AccountAddOptions {
   source: string;
@@ -57,6 +58,7 @@ export async function accountAddCommand(
 
 export interface AccountListOptions {
   config?: string;
+  format?: string;
 }
 
 export async function accountListCommand(
@@ -67,6 +69,8 @@ export async function accountListCommand(
   const repo = createRepo(db.raw);
   const accounts = repo.listAccounts();
   db.close();
+
+  if (writeJson(opts.format, accounts)) return;
 
   if (accounts.length === 0) {
     console.log('No accounts configured. Add one with `daybook account add ...`');

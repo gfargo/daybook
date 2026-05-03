@@ -15,6 +15,7 @@ import { createRepo, openDatabase } from '@daybook/ledger';
 import type { PriceOverride } from '@daybook/ledger';
 import { expandPath, loadConfig } from '../config.js';
 import { renderOverridesList } from './OverridesList.js';
+import { writeJson } from '../ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Command interfaces
@@ -27,6 +28,7 @@ export interface OverridesSetOptions {
 
 export interface OverridesListOptions {
   config?: string;
+  format?: string;
 }
 
 export interface OverridesRemoveOptions {
@@ -176,6 +178,11 @@ export async function overridesListCommand(
 
   try {
     const overrides = repo.getPriceOverrides();
+
+    if (writeJson(opts.format, overrides)) {
+      return;
+    }
+
     renderOverridesList(overrides);
   } finally {
     db.close();

@@ -29,6 +29,7 @@ import {
 import type { MethodSummary } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
 import { CompareTable } from './CompareTable.js';
+import { writeJson } from '../ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Command interface
@@ -36,6 +37,7 @@ import { CompareTable } from './CompareTable.js';
 
 export interface CompareOptions {
   config?: string;
+  format?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -247,6 +249,14 @@ export async function compareCommand(
 
     // 8. Summarize and render table using Ink
     const summaries = summarizeResults(compareResult);
+
+    if (writeJson(opts.format, {
+      lowestTaxMethod: compareResult.lowestTaxMethod,
+      summaries,
+    })) {
+      return;
+    }
+
     renderInkTable(summaries, compareResult.lowestTaxMethod);
 
     // Print warnings if any

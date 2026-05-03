@@ -15,11 +15,13 @@ import {
 } from '@daybook/ledger';
 import { expandPath, loadConfig } from '../config.js';
 import { EventsTable } from './EventsTable.js';
+import { writeJson } from '../ui/index.js';
 
 export interface EventsCountOptions {
   account?: string;
   source?: string;
   config?: string;
+  format?: string;
 }
 
 export async function eventsCountCommand(
@@ -35,6 +37,8 @@ export async function eventsCountCommand(
   const total = repo.countTotal(filter);
   const counts = repo.countByType(filter);
   db.close();
+
+  if (writeJson(opts.format, { total, counts })) return;
 
   if (total === 0) {
     console.log('No events. Run `daybook sync ...` first.');
@@ -54,6 +58,7 @@ export interface EventsListOptions {
   source?: string;
   account?: string;
   config?: string;
+  format?: string;
 }
 
 /**
@@ -77,6 +82,8 @@ export async function eventsListCommand(
     limit,
   });
   db.close();
+
+  if (writeJson(opts.format, events)) return;
 
   const { unmount } = render(
     React.createElement(EventsTable, { events }),

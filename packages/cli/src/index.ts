@@ -61,6 +61,7 @@ account
 account
   .command('list')
   .description('List configured accounts')
+  .option('--format <fmt>', 'Output format: json')
   .option('--config <path>')
   .action(accountListCommand);
 
@@ -84,6 +85,7 @@ events
   .description('Count events grouped by RawEventType')
   .option('--account <id>', 'Filter to one account')
   .option('--source <id>', 'Filter to one source')
+  .option('--format <fmt>', 'Output format: json')
   .option('--config <path>')
   .action(eventsCountCommand);
 
@@ -94,6 +96,7 @@ events
   .option('--type <t>', 'Filter to one RawEventType')
   .option('--source <id>', 'Filter to one source')
   .option('--account <id>', 'Filter to one account')
+  .option('--format <fmt>', 'Output format: json')
   .option('--config <path>')
   .action(eventsListCommand);
 
@@ -122,6 +125,7 @@ program
 program
   .command('compare <year>')
   .description('Compare tax outcomes across cost-basis methods')
+  .option('--format <fmt>', 'Output format: json')
   .option('--config <path>')
   .action(compareCommand);
 
@@ -138,6 +142,7 @@ overrides
 overrides
   .command('list')
   .description('List all price overrides')
+  .option('--format <fmt>', 'Output format: json')
   .option('--config <path>')
   .action(overridesListCommand);
 

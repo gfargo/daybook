@@ -26,6 +26,9 @@ export { Header, type HeaderProps } from './Header.js';
 
 // ─── TTY utilities ───────────────────────────────────────────────────────
 export { isTTY, terminalWidth, isNarrowTerminal, requireInteractive } from './tty.js';
+
+// ─── JSON output ─────────────────────────────────────────────────────────
+export { writeJson } from './json-output.js';
 export { Row, type RowProps } from './Row.js';
 export { Glyph, type GlyphProps } from './Glyph.js';
 export { Spinner, type SpinnerProps } from './Spinner.js';
