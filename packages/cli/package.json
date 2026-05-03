@@ -1,9 +1,25 @@
 {
-  "name": "@daybook/cli",
+  "name": "daybook",
   "version": "0.0.0",
-  "private": true,
-  "description": "Command-line interface for daybook",
+  "private": false,
+  "description": "Self-hosted crypto wallet auditing and tax reporting",
   "license": "MIT",
+  "author": "Griffen Fargo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gfargo/daybook.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "crypto",
+    "tax",
+    "cost-basis",
+    "ledger",
+    "cli",
+    "ethereum",
+    "coinbase",
+    "kraken"
+  ],
   "type": "module",
   "bin": {
     "daybook": "./dist/index.js"

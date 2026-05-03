@@ -1,0 +1,23 @@
+{
+  "git": {
+    "commitMessage": "chore: release v${version}",
+    "tagName": "v${version}",
+    "tagAnnotation": "Release v${version}",
+    "requireBranch": "main",
+    "requireCleanWorkingDir": true,
+    "push": true
+  },
+  "github": {
+    "release": true,
+    "releaseName": "v${version}",
+    "autoGenerate": true
+  },
+  "npm": {
+    "publish": true,
+    "publishPath": "packages/cli"
+  },
+  "hooks": {
+    "before:init": "pnpm typecheck && pnpm test && pnpm build",
+    "after:bump": "node scripts/sync-versions.js ${version}"
+  }
+}

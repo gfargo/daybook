@@ -19,11 +19,14 @@
     "test:watch": "vitest",
     "lint": "eslint packages",
     "typecheck": "tsc -b",
-    "clean": "pnpm -r exec rm -rf dist"
+    "clean": "pnpm -r exec rm -rf dist",
+    "release": "release-it",
+    "release:dry": "release-it --dry-run"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
+    "release-it": "18",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"

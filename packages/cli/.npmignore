@@ -1,0 +1,7 @@
+src/
+tsconfig.json
+tsconfig.build.json
+tsconfig.tsbuildinfo
+*.test.ts
+*.test.js
+*.test.d.ts
