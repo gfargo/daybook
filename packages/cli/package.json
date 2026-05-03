@@ -36,6 +36,7 @@
     "@daybook/ledger": "workspace:*",
     "@daybook/sources": "workspace:*",
     "@daybook/tax": "workspace:*",
+    "chalk": "5",
     "commander": "^12.0.0",
     "decimal.js": "^10.4.3",
     "ink": "^7.0.1",
