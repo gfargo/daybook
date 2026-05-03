@@ -17,6 +17,8 @@ import type { LedgerEntry, AssetLeg } from '@daybook/ledger';
 import type { CostBasisStrategy } from './cost-basis.js';
 import { LotBook } from './lot-book.js';
 import type { TaxResult, DisposalResult, IncomeSummary } from './types.js';
+import { applyWashSaleFlags } from './wash-sale.js';
+import type { AcquisitionRecord } from './wash-sale.js';
 import { canonicalAsset } from './pricing/asset-aliases.js';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -191,6 +193,7 @@ export function computeTax(
   const lotBook = new LotBook();
   const disposals: DisposalResult[] = [];
   const incomeEvents: IncomeEvent[] = [];
+  const acquisitions: AcquisitionRecord[] = [];
   const warnings: string[] = [];
   const unpricedEvents: string[] = [];
 
@@ -231,6 +234,9 @@ export function computeTax(
             acquiredAt: entry.timestamp,
             sourceEntryId: entry.id,
           });
+
+          // Track acquisition for wash-sale pass
+          acquisitions.push({ asset, acquiredAt: entry.timestamp });
         }
 
         // Dispose lots for negative (sell) legs — only in the tax year
@@ -317,6 +323,9 @@ export function computeTax(
             acquiredAt: entry.timestamp,
             sourceEntryId: entry.id,
           });
+
+          // Track acquisition for wash-sale pass
+          acquisitions.push({ asset, acquiredAt: entry.timestamp });
 
           // Track income event (only for the tax year)
           if (
@@ -412,10 +421,13 @@ export function computeTax(
   // Deduplicate unpriced events
   const uniqueUnpriced = [...new Set(unpricedEvents)];
 
+  // ─── Wash-sale pass ────────────────────────────────────────────
+  const flaggedDisposals = applyWashSaleFlags(disposals, acquisitions);
+
   return {
     year,
     method: method.name,
-    disposals,
+    disposals: flaggedDisposals,
     income: buildIncomeSummary(incomeEvents),
     warnings,
     unpricedEvents: uniqueUnpriced,

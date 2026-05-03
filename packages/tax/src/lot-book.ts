@@ -143,6 +143,7 @@ export class LotBook {
       disposedAt,
       sourceEntryId,
       lotsConsumed,
+      washSaleFlag: false,
     };
   }
 

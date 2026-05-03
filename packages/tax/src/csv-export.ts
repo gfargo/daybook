@@ -14,6 +14,18 @@ import Decimal from 'decimal.js';
 import type { TaxResult } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────
+// Options
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Options for CSV export formatting.
+ */
+export interface FormatCsvOptions {
+  /** When true, omit the `Wash Sale?` column from the CSV output. */
+  noWashSaleFlag?: boolean | undefined;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -40,10 +52,16 @@ function formatDate(date: Date): string {
  * Produces a header row, one data row per disposal, then a summary
  * section with total short-term gain, long-term gain, and income.
  *
+ * By default includes a `Wash Sale?` column after `Term` with values
+ * `Y` or `N`. Pass `{ noWashSaleFlag: true }` to omit it.
+ *
  * @param result - The complete tax computation result.
+ * @param opts - Optional formatting options.
  * @returns A CSV-formatted string ready for file output.
  */
-export function formatCsv(result: TaxResult): string {
+export function formatCsv(result: TaxResult, opts?: FormatCsvOptions): string {
+  const includeWashSale = !(opts?.noWashSaleFlag);
+
   const headers = [
     'Date Acquired',
     'Date Sold',
@@ -53,6 +71,7 @@ export function formatCsv(result: TaxResult): string {
     'Cost Basis (USD)',
     'Gain/Loss (USD)',
     'Term',
+    ...(includeWashSale ? ['Wash Sale?'] : []),
   ];
 
   const rows: string[][] = result.disposals.map((d) => [
@@ -64,6 +83,7 @@ export function formatCsv(result: TaxResult): string {
     d.costBasis,
     d.gainLoss,
     d.term,
+    ...(includeWashSale ? [d.washSaleFlag ? 'Y' : 'N'] : []),
   ]);
 
   // Build data section (header + rows)

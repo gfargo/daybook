@@ -71,6 +71,8 @@ program
   .requiredOption('--source <id>', 'Source: coinbase, eth, polygon, ...')
   .option('--file <path>', 'For CSV-import sources, path to the CSV file')
   .option('--account <id>', 'Account to sync into (defaults to first matching source)')
+  .option('--include-failed-gas', 'Include gas costs from failed EVM transactions (requires ETHERSCAN_API_KEY)')
+  .option('--from <date|block>', 'Sync only transfers after this date (ISO 8601) or block number (EVM sources only)')
   .option('--config <path>')
   .action(syncCommand);
 
@@ -90,6 +92,8 @@ events
   .description('List recent events (default 20)')
   .option('--limit <n>', 'How many events to show', '20')
   .option('--type <t>', 'Filter to one RawEventType')
+  .option('--source <id>', 'Filter to one source')
+  .option('--account <id>', 'Filter to one account')
   .option('--config <path>')
   .action(eventsListCommand);
 
@@ -97,6 +101,9 @@ events
 program
   .command('classify')
   .description('Run classifier rules over ingested events')
+  .option('--dry-run', 'Preview what would change without writing to the database')
+  .option('--review', 'Interactively review and override unclassified entries after classification')
+  .option('--no-review', 'Skip interactive review of unclassified entries')
   .option('--config <path>')
   .action(classifyCommand);
 
@@ -104,8 +111,10 @@ program
 program
   .command('export <year>')
   .description('Export tax-ready CSV for a given year')
-  .option('--method <FIFO|HIFO>', 'Cost-basis method')
+  .option('--method <FIFO|HIFO|specific-id>', 'Cost-basis method')
   .option('--output <path>', 'CSV output path')
+  .option('--lot-selections <path>', 'JSON file with lot selections for specific-id method')
+  .option('--no-wash-sale-flag', 'Omit the Wash Sale? column from the CSV export')
   .option('--config <path>')
   .action(exportCommand);
 

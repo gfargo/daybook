@@ -40,8 +40,7 @@ export interface LotSelection {
  *
  * - FIFO: oldest lots first (IRS default)
  * - HIFO: highest-cost lots first (minimizes current-year tax)
- * - LIFO: newest lots first (v1.1)
- * - Specific ID: user picks (v2)
+ * - Specific ID: user hand-picks which lots to dispose
  */
 export interface CostBasisStrategy {
   /** Human-readable name (e.g. 'FIFO', 'HIFO'). */
@@ -140,3 +139,62 @@ export const HIFO: CostBasisStrategy = {
     return takeFromQueue(sorted, amount);
   },
 };
+
+// ─────────────────────────────────────────────────────────────────────────
+// Specific ID strategy
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Specific ID — user hand-picks which lots to dispose.
+ *
+ * Accepts a pre-built selection map (`lotId → amount to take`) and
+ * consumes only the lots present in that map, up to the requested
+ * disposal amount. If the selected lots don't fully cover the
+ * disposal, the uncovered portion is returned as `remainder`.
+ *
+ * The selection map is typically built interactively via the
+ * `LotPicker` Ink component, or loaded from a JSON file for replay.
+ */
+export class SpecificId implements CostBasisStrategy {
+  readonly name = 'Specific ID';
+
+  /**
+   * @param selections - Map from lot ID to the decimal string amount
+   *   to take from that lot. Lots not in the map are skipped entirely.
+   */
+  constructor(private readonly selections: Map<string, string>) {}
+
+  /**
+   * Select lots to consume based on the user's explicit selections.
+   *
+   * Iterates the available lots in their natural order. For each lot
+   * that appears in the selections map, takes the lesser of the
+   * selected amount and the remaining disposal need. Lots not in the
+   * map are skipped.
+   *
+   * @param available - Read-only view of lots for the asset being disposed.
+   * @param amount - The total amount to dispose (always positive).
+   * @returns The selected lots and any uncovered remainder.
+   */
+  selectLots(available: ReadonlyArray<Lot>, amount: Decimal): LotSelection {
+    const consumed: Array<{ lot: Lot; amount: string }> = [];
+    let remaining = amount;
+
+    for (const lot of available) {
+      if (remaining.isZero()) break;
+
+      const selected = this.selections.get(lot.id);
+      if (!selected) continue;
+
+      const selectedAmount = new Decimal(selected);
+      const lotAmount = new Decimal(lot.amount);
+
+      // Take the minimum of: selected amount, lot amount, remaining need
+      const take = Decimal.min(selectedAmount, lotAmount, remaining);
+      consumed.push({ lot, amount: take.toString() });
+      remaining = remaining.minus(take);
+    }
+
+    return { consumed, remainder: remaining.toString() };
+  }
+}

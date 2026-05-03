@@ -11,7 +11,7 @@ Last updated: 2026-05-02
 | **Tax output** | Tax-ready CSV first; Form 8949 + Schedule D + TXF in v2 | Hand to CPA initially. Forms generation is significant work that doesn't block having a working tool. |
 | **Sync model** | On-demand CLI only (`daybook sync`) | Year-end-tax-prep mental model. Each run is a snapshot. No daemon, no reorg handling, no missed-event paranoia. |
 | **Sources in v1** | Coinbase + Ethereum mainnet + Polygon | Smallest set that covers the bulk of activity. |
-| **Sources in v1.1** | Kraken (adapter is small lift, validates double-entry handling) | First post-v1 milestone. Data model already supports it. |
+| **Sources in v1.1** | Kraken CSV adapter (complete) | First post-v1 milestone. Data model already supports it. Validates double-entry handling. |
 | **License** | MIT | Maximum reusability. Easy to relicense later if needed. |
 
 ## Defaults (override if these don't fit)
@@ -27,9 +27,9 @@ Last updated: 2026-05-02
 
 ## Things explicitly deferred
 
-These are *known* concerns that v1 will not address. Captured here so future-us doesn't re-derive them:
+These are *known* concerns that v1/v1.1 will not address. Captured here so future-us doesn't re-derive them:
 
-- **Wash-sale rules.** Currently don't apply to crypto under US tax law. Bills have been proposed for years. Ship a flag in the `tax` package output but don't compute disallowances.
+- **Wash-sale rules.** Currently don't apply to crypto under US tax law. Bills have been proposed for years. v1.1 ships informational wash-sale flagging (±30 calendar days) on loss disposals — no disallowance computation.
 - **Like-kind treatment.** Pre-2018 trade-for-trade swaps. Not relevant for current activity.
 - **Reorg handling.** v1 is on-demand only; reorgs are a daemon-mode concern.
 - **Multi-user / family / LLC accounts.** v1 is single-identity. Multi-account support is *separate accounts under one identity*, not multi-identity.

@@ -35,6 +35,8 @@ export interface EvmAdapterOptions {
   accountId: string;
   /** daybook source ID ('eth', 'polygon', ...). */
   source: SourceId;
+  /** Inclusive lower-bound block for incremental syncs. */
+  fromBlock?: bigint;
 }
 
 /** Per-category transfer counts plus dedup stats. */
@@ -78,6 +80,7 @@ export async function ingestEvm(opts: EvmAdapterOptions): Promise<EvmIngestResul
   for await (const transfer of opts.provider.fetchTransfers({
     address: opts.address,
     chainId: opts.chainId,
+    ...(opts.fromBlock !== undefined ? { fromBlock: opts.fromBlock } : {}),
   })) {
     // Dedupe — bidirectional queries overlap for self-transfers.
     if (seen.has(transfer.providerId)) {

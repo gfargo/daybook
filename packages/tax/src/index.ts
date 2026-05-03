@@ -19,7 +19,7 @@
  * Pending implementation.
  */
 
-export type CostBasisMethod = 'FIFO' | 'HIFO';
+export type CostBasisMethod = 'FIFO' | 'HIFO' | 'Specific ID';
 
 // ─── Tax engine types ────────────────────────────────────────────────────
 export type {
@@ -34,7 +34,7 @@ export type {
   LotSelection,
 } from './cost-basis.js';
 
-export { FIFO, HIFO } from './cost-basis.js';
+export { FIFO, HIFO, SpecificId } from './cost-basis.js';
 
 export { LotBook } from './lot-book.js';
 
@@ -48,6 +48,11 @@ export type { CompareResult, MethodSummary } from './compare.js';
 
 // ─── CSV export ──────────────────────────────────────────────────────────
 export { formatCsv } from './csv-export.js';
+export type { FormatCsvOptions } from './csv-export.js';
+
+// ─── Wash sale ───────────────────────────────────────────────────────────
+export { applyWashSaleFlags } from './wash-sale.js';
+export type { AcquisitionRecord } from './wash-sale.js';
 
 // ─── Pricing module ──────────────────────────────────────────────────────
 export * from './pricing/index.js';

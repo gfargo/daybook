@@ -29,5 +29,10 @@ export type {
 } from './adapter.js';
 export { ingestEvm } from './adapter.js';
 
+// Block resolution
+export type { ResolvedBlock } from './block-resolver.js';
+export { resolveFromBlock } from './block-resolver.js';
+
 // Providers
 export { AlchemyTransferProvider } from './providers/alchemy.js';
+export { EtherscanTransferProvider } from './providers/etherscan.js';

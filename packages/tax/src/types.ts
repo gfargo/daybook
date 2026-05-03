@@ -65,6 +65,14 @@ export interface DisposalResult {
   sourceEntryId: string;
   /** Details of each lot (or partial lot) consumed. */
   lotsConsumed: Array<{ lotId: string; amount: string; costBasis: string }>;
+  /**
+   * Whether this disposal may be subject to wash-sale rules.
+   *
+   * `true` when the same asset was acquired within ±30 calendar days
+   * of the disposal date and the disposal resulted in a loss.
+   * Informational only — no disallowance is computed.
+   */
+  washSaleFlag: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

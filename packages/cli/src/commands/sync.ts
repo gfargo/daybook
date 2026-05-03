@@ -9,11 +9,13 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { coinbase } from '@daybook/sources';
+import { coinbase, kraken } from '@daybook/sources';
 import {
     AlchemyTransferProvider,
     CHAIN_ID_BY_SOURCE,
+    EtherscanTransferProvider,
     ingestEvm,
+    resolveFromBlock,
 } from '@daybook/sources/evm';
 import type { Config } from '../config.js';
 import { expandPath, loadConfig } from '../config.js';
@@ -23,6 +25,8 @@ export interface SyncOptions {
   file?: string;
   account?: string;
   config?: string;
+  includeFailedGas?: boolean;
+  from?: string;
 }
 
 export async function syncCommand(opts: SyncOptions): Promise<void> {
@@ -31,9 +35,19 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
   const repo = createRepo(db.raw);
 
   try {
+    // Guard: --from is only supported for EVM sources.
+    if (opts.from && (opts.source === 'coinbase' || opts.source === 'kraken')) {
+      throw new Error(
+        `\`--from\` is not supported for ${opts.source === 'coinbase' ? 'Coinbase' : 'Kraken'} CSV imports. Filter by date after import.`,
+      );
+    }
+
     switch (opts.source) {
       case 'coinbase':
         await syncCoinbase(opts, config, repo);
+        break;
+      case 'kraken':
+        await syncKraken(opts, config, repo);
         break;
       case 'eth':
       case 'polygon':
@@ -113,6 +127,68 @@ async function syncCoinbase(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Kraken CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncKraken(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('Kraken sync requires --file <path-to-csv>');
+  }
+
+  // Resolve account: explicit --account, or the first kraken account in config.
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'kraken')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Kraken account configured. Add one with `daybook account add <id> --source kraken --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'kraken') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not kraken.`,
+    );
+  }
+
+  // Parse CSV
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = kraken.parseKrakenCsv(csvContents, { accountId });
+
+  // Persist
+  const insertResult = repo.insertRawEvents(result.events);
+
+  // Report
+  console.log(`Kraken sync (${accountId}):`);
+  console.log(`  Read ${result.totalRows} CSV rows → ${result.events.length} events`);
+  console.log(`  Inserted: ${insertResult.inserted}`);
+  console.log(`  Skipped (already in DB): ${insertResult.skipped}`);
+  if (result.warnings.length) {
+    console.log(`  Warnings (${result.warnings.length}):`);
+    for (const w of result.warnings.slice(0, 10)) {
+      console.log(`    - ${w}`);
+    }
+    if (result.warnings.length > 10) {
+      console.log(`    ... and ${result.warnings.length - 10} more`);
+    }
+  }
+
+  // Per-type breakdown of what's now in the DB
+  console.log('');
+  console.log(`  Events in DB for ${accountId}:`);
+  const counts = repo.countByType({ accountId });
+  for (const c of counts) {
+    console.log(`    ${(c.type + ':').padEnd(20)} ${c.count}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // EVM sync (Ethereum, Polygon)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -162,6 +238,16 @@ async function syncEvm(
 
   const provider = new AlchemyTransferProvider(apiKey);
 
+  // ─── Resolve --from to a block number ──────────────────────────────
+  let fromBlock: bigint | undefined;
+  if (opts.from) {
+    const resolved = await resolveFromBlock(opts.from, chainId, apiKey);
+    fromBlock = resolved.blockNumber;
+    console.log(
+      `Syncing from block ${resolved.blockNumber} (${resolved.timestamp.toISOString().slice(0, 10)})`,
+    );
+  }
+
   console.log(`EVM sync (${accountId}, ${opts.source}):`);
   const { events, stats } = await ingestEvm({
     provider,
@@ -169,6 +255,7 @@ async function syncEvm(
     chainId,
     accountId,
     source: account.source,
+    ...(fromBlock !== undefined ? { fromBlock } : {}),
   });
 
   console.log(`  Native: ${stats.native}`);
@@ -180,8 +267,36 @@ async function syncEvm(
     console.log(`  (${stats.deduped} duplicate transfers skipped)`);
   }
 
-  const insertResult = repo.insertRawEvents(events);
-  console.log(`  Total: ${events.length}`);
+  // ─── Failed-tx gas via Etherscan ───────────────────────────────────
+  const allEvents = [...events];
+  let failedGasCount = 0;
+
+  if (opts.includeFailedGas) {
+    const etherscanKey = process.env['ETHERSCAN_API_KEY'];
+    if (!etherscanKey) {
+      throw new Error(
+        'ETHERSCAN_API_KEY environment variable is required for --include-failed-gas. ' +
+        'Get a free key at https://etherscan.io/apis',
+      );
+    }
+
+    const etherscanProvider = new EtherscanTransferProvider(etherscanKey, chainId);
+    const { events: failedEvents, stats: failedStats } = await ingestEvm({
+      provider: etherscanProvider,
+      address: account.identifier,
+      chainId,
+      accountId,
+      source: account.source,
+      ...(fromBlock !== undefined ? { fromBlock } : {}),
+    });
+
+    allEvents.push(...failedEvents);
+    failedGasCount = failedStats.native;
+    console.log(`  Failed-tx gas entries: ${failedGasCount}`);
+  }
+
+  const insertResult = repo.insertRawEvents(allEvents);
+  console.log(`  Total: ${allEvents.length}`);
   console.log(`  Inserted: ${insertResult.inserted}`);
   console.log(`  Skipped (already in DB): ${insertResult.skipped}`);
 

@@ -14,22 +14,28 @@
  *  10. Print summary
  */
 
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import Decimal from 'decimal.js';
+import { render } from 'ink';
+import React from 'react';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import {
     computeTax,
     formatCsv,
     FIFO,
     HIFO,
+    SpecificId,
+    LotBook,
     PriceCache,
     PricingChain,
     SourceReportedProvider,
     CoinGeckoProvider,
     ManualOverrideProvider,
 } from '@daybook/tax';
-import type { CostBasisStrategy } from '@daybook/tax';
+import type { CostBasisStrategy, DisposalResult } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
+import { LotPicker } from './LotPicker.js';
+import type { PendingDisposal } from './LotPicker.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Command interface
@@ -39,6 +45,8 @@ export interface ExportOptions {
   method?: string;
   output?: string;
   config?: string;
+  lotSelections?: string;
+  noWashSaleFlag?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -48,20 +56,242 @@ export interface ExportOptions {
 /**
  * Resolve the cost-basis strategy from the --method flag or config default.
  *
+ * For FIFO and HIFO, returns the strategy directly. For Specific ID,
+ * returns `null` — the caller must handle the interactive or file-based
+ * lot selection flow separately.
+ *
  * @param flag - The --method flag value (case-insensitive), if provided.
  * @param configDefault - The default method from config.tax.costBasisMethod.
- * @returns The resolved CostBasisStrategy.
+ * @returns The resolved CostBasisStrategy, or `null` for Specific ID.
  */
-function resolveMethod(flag: string | undefined, configDefault: string): CostBasisStrategy {
-  const raw = (flag ?? configDefault).toUpperCase();
+function resolveMethod(flag: string | undefined, configDefault: string): CostBasisStrategy | null {
+  const raw = (flag ?? configDefault).toLowerCase().replace(/[\s_]/g, '-');
   switch (raw) {
-    case 'FIFO':
+    case 'fifo':
       return FIFO;
-    case 'HIFO':
+    case 'hifo':
       return HIFO;
+    case 'specific-id':
+      return null; // handled separately
     default:
-      throw new Error(`Unknown cost-basis method: "${raw}". Supported methods: FIFO, HIFO.`);
+      throw new Error(`Unknown cost-basis method: "${flag ?? configDefault}". Supported methods: FIFO, HIFO, specific-id.`);
   }
+}
+
+/**
+ * Load a lot selection map from a JSON file.
+ *
+ * The file should contain a JSON object mapping lot IDs to decimal
+ * string amounts, e.g. `{ "lot-1": "0.5", "lot-2": "1.0" }`.
+ *
+ * @param filePath - Path to the JSON file.
+ * @returns A Map from lot ID to amount string.
+ */
+function loadLotSelections(filePath: string): Map<string, string> {
+  const raw = readFileSync(filePath, 'utf-8');
+  const parsed = JSON.parse(raw) as Record<string, string>;
+  return new Map(Object.entries(parsed));
+}
+
+/**
+ * Validate that all lot IDs in the selection map exist in the given
+ * lot pool. The caller collects known lot IDs from a FIFO dry-run
+ * and checks against the selection map.
+ *
+ * @param selections - The lot selection map to validate.
+ * @param knownLotIds - Set of lot IDs known to exist.
+ * @returns Array of missing lot IDs (empty if all valid).
+ */
+function findMissingLotIds(selections: Map<string, string>, knownLotIds: Set<string>): string[] {
+  const missing: string[] = [];
+  for (const lotId of selections.keys()) {
+    if (!knownLotIds.has(lotId)) {
+      missing.push(lotId);
+    }
+  }
+  return missing;
+}
+
+/**
+ * Run the interactive LotPicker flow and return the selections.
+ *
+ * @param pendingDisposals - Disposals that need lot selection.
+ * @returns A promise resolving to the lot selections and skipped indices.
+ */
+async function runLotPicker(
+  pendingDisposals: PendingDisposal[],
+): Promise<{ selections: Map<string, string>; skippedIndices: Set<number> }> {
+  return new Promise((resolve) => {
+    const { unmount, waitUntilExit } = render(
+      React.createElement(LotPicker, {
+        disposals: pendingDisposals,
+        onDone: (selections: Map<string, string>, skippedIndices: Set<number>) => {
+          unmount();
+          resolve({ selections, skippedIndices });
+        },
+      }),
+    );
+    void waitUntilExit();
+  });
+}
+
+/**
+ * Build the list of pending disposals with available lots for the
+ * interactive lot picker.
+ *
+ * Replays the tax engine's lot acquisition logic (without disposals)
+ * to reconstruct the lot book state at each disposal point, then
+ * captures a snapshot of available lots for each disposal.
+ *
+ * @param entries - All hydrated LedgerEntries (prior + current year).
+ * @param year - The tax year.
+ * @returns Array of PendingDisposal objects for the picker.
+ */
+function buildPendingDisposals(
+  entries: import('@daybook/ledger').LedgerEntry[],
+  year: number,
+): PendingDisposal[] {
+  const yearStart = new Date(`${year}-01-01T00:00:00Z`);
+  const yearEnd = new Date(`${year + 1}-01-01T00:00:00Z`);
+
+  const sorted = [...entries].sort(
+    (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
+  );
+
+  const lotBook = new LotBook();
+  const pending: PendingDisposal[] = [];
+  let lotCounter = 0;
+
+  /** Check if a leg is a USD fiat leg. */
+  function isUsdLeg(leg: import('@daybook/ledger').AssetLeg): boolean {
+    const asset = leg.asset.toUpperCase();
+    return asset === 'USD' || asset === 'USDC' || asset === 'USDT';
+  }
+
+  /** Resolve USD value for a leg. */
+  function resolveUsd(leg: import('@daybook/ledger').AssetLeg): string | null {
+    return leg.amountUsdAtTime ?? leg.amountUsdReportedBySource ?? null;
+  }
+
+  /** Compute unit cost. */
+  function unitCost(leg: import('@daybook/ledger').AssetLeg, totalUsd: string): string {
+    const absAmount = new Decimal(leg.amount).abs();
+    if (absAmount.isZero()) return '0';
+    return new Decimal(totalUsd).abs().div(absAmount).toString();
+  }
+
+  for (const entry of sorted) {
+    switch (entry.type) {
+      case 'trade': {
+        const inLegs = entry.legs.filter(
+          (l) => !l.feeFlag && new Decimal(l.amount).isPositive() && !isUsdLeg(l),
+        );
+        const outLegs = entry.legs.filter(
+          (l) => !l.feeFlag && new Decimal(l.amount).isNegative() && !isUsdLeg(l),
+        );
+
+        // Acquire lots for buy legs
+        for (const leg of inLegs) {
+          const usd = resolveUsd(leg);
+          if (!usd) continue;
+          lotCounter++;
+          lotBook.acquire({
+            id: `lot-${entry.id}-${leg.asset}-${lotCounter}`,
+            asset: leg.asset.toUpperCase(),
+            amount: new Decimal(leg.amount).abs().toString(),
+            unitCostUsd: unitCost(leg, usd),
+            acquiredAt: entry.timestamp,
+            sourceEntryId: entry.id,
+          });
+        }
+
+        // For sell legs in the tax year, capture available lots before disposing
+        for (const leg of outLegs) {
+          const absAmount = new Decimal(leg.amount).abs();
+          const asset = leg.asset.toUpperCase();
+
+          if (entry.timestamp >= yearStart && entry.timestamp < yearEnd) {
+            // Snapshot available lots for the picker
+            const available = [...lotBook.getAvailable(asset)];
+            pending.push({
+              disposal: {
+                asset,
+                amount: absAmount.toString(),
+                proceeds: '0',
+                costBasis: '0',
+                gainLoss: '0',
+                term: 'short-term',
+                acquiredAt: entry.timestamp,
+                disposedAt: entry.timestamp,
+                sourceEntryId: entry.id,
+                lotsConsumed: [],
+                washSaleFlag: false,
+              },
+              availableLots: available,
+            });
+          }
+
+          // Dispose with FIFO to advance the lot book state
+          lotBook.dispose(asset, absAmount, FIFO, entry.timestamp);
+        }
+        break;
+      }
+
+      case 'income': {
+        for (const leg of entry.legs) {
+          if (isUsdLeg(leg)) continue;
+          const usd = resolveUsd(leg);
+          if (!usd) continue;
+          lotCounter++;
+          lotBook.acquire({
+            id: `lot-${entry.id}-${leg.asset}-${lotCounter}`,
+            asset: leg.asset.toUpperCase(),
+            amount: new Decimal(leg.amount).abs().toString(),
+            unitCostUsd: unitCost(leg, usd),
+            acquiredAt: entry.timestamp,
+            sourceEntryId: entry.id,
+          });
+        }
+        break;
+      }
+
+      case 'fee_disposal': {
+        for (const leg of entry.legs) {
+          if (new Decimal(leg.amount).isZero()) continue;
+          const absAmount = new Decimal(leg.amount).abs();
+          const asset = leg.asset.toUpperCase();
+
+          if (entry.timestamp >= yearStart && entry.timestamp < yearEnd) {
+            const available = [...lotBook.getAvailable(asset)];
+            pending.push({
+              disposal: {
+                asset,
+                amount: absAmount.toString(),
+                proceeds: '0',
+                costBasis: '0',
+                gainLoss: '0',
+                term: 'short-term',
+                acquiredAt: entry.timestamp,
+                disposedAt: entry.timestamp,
+                sourceEntryId: entry.id,
+                lotsConsumed: [],
+                washSaleFlag: false,
+              },
+              availableLots: available,
+            });
+          }
+
+          lotBook.dispose(asset, absAmount, FIFO, entry.timestamp);
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+  }
+
+  return pending;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -100,7 +330,8 @@ export async function exportCommand(
     }
 
     // 5. Determine cost-basis method
-    const strategy = resolveMethod(opts.method, config.tax.costBasisMethod);
+    const strategyOrNull = resolveMethod(opts.method, config.tax.costBasisMethod);
+    const isSpecificId = strategyOrNull === null;
 
     // 6. Set up pricing chain (source-reported → CoinGecko → manual override)
     const cache = new PriceCache(db.raw);
@@ -171,7 +402,77 @@ export async function exportCommand(
     // Combine prior entries + current year entries for full lot history
     const allHydratedEntries = [...priorEntries, ...entries];
 
-    // 7. Run computeTax()
+    // 7. Run computeTax() — handle Specific ID specially
+    let strategy: CostBasisStrategy;
+
+    if (isSpecificId) {
+      // First pass with FIFO to discover disposals and build lot state
+      const fifoResult = computeTax(allHydratedEntries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: yearNum,
+      });
+
+      if (opts.lotSelections) {
+        // Load selections from file
+        const selections = loadLotSelections(opts.lotSelections);
+
+        // Validate lot IDs exist by rebuilding the lot book
+        const validationResult = computeTax(allHydratedEntries, {
+          method: FIFO,
+          holdingPeriodDays: 365,
+          year: yearNum,
+        });
+
+        // Collect all lot IDs that appear in disposal results
+        const knownLotIds = new Set<string>();
+        for (const d of validationResult.disposals) {
+          for (const lc of d.lotsConsumed) {
+            knownLotIds.add(lc.lotId);
+          }
+        }
+
+        const missingIds = findMissingLotIds(selections, knownLotIds);
+
+        if (missingIds.length > 0) {
+          throw new Error(
+            `Lot IDs not found in current LotBook:\n${missingIds.map(id => `  - ${id}`).join('\n')}\n\nThese lots may have been consumed by reclassification. Re-run without --lot-selections to pick new lots.`,
+          );
+        }
+
+        strategy = new SpecificId(selections);
+      } else {
+        // Interactive lot picker flow
+        if (!process.stdout.isTTY) {
+          throw new Error(
+            'Specific ID requires an interactive terminal or --lot-selections <path>.',
+          );
+        }
+
+        // Build pending disposals with available lots for the picker
+        // We need to replay the lot book to know what's available at each disposal
+        const pendingDisposals = buildPendingDisposals(allHydratedEntries, yearNum);
+
+        if (pendingDisposals.length === 0) {
+          console.log('No disposals found for the tax year. Nothing to select.');
+          return;
+        }
+
+        const { selections, skippedIndices } = await runLotPicker(pendingDisposals);
+
+        // Serialize selections for replay
+        const selectionsObj = Object.fromEntries(selections);
+        const selectionsPath = `./daybook-${yearNum}-specific-id-selections.json`;
+        writeFileSync(selectionsPath, JSON.stringify(selectionsObj, null, 2), 'utf-8');
+        console.log(`Lot selections saved to: ${selectionsPath}`);
+        console.log('  (Use --lot-selections to replay without the interactive picker)\n');
+
+        strategy = new SpecificId(selections);
+      }
+    } else {
+      strategy = strategyOrNull;
+    }
+
     const taxResult = computeTax(allHydratedEntries, {
       method: strategy,
       holdingPeriodDays: 365,
@@ -179,7 +480,7 @@ export async function exportCommand(
     });
 
     // 8. Generate CSV
-    const csv = formatCsv(taxResult);
+    const csv = formatCsv(taxResult, { noWashSaleFlag: opts.noWashSaleFlag });
 
     // 9. Write CSV to output path
     const methodName = strategy.name;
@@ -204,6 +505,14 @@ export async function exportCommand(
     console.log(`  Total income:        ${taxResult.income.totalUsd}`);
     console.log(`  Unpriced events:     ${taxResult.unpricedEvents.length}`);
     console.log(`  CSV written to:      ${outputPath}`);
+
+    // Wash sale candidate summary
+    if (!opts.noWashSaleFlag) {
+      const washSaleCount = taxResult.disposals.filter((d: DisposalResult) => d.washSaleFlag).length;
+      if (washSaleCount > 0) {
+        console.log(`  Wash sale candidates: ${washSaleCount} (see Wash Sale? column)`);
+      }
+    }
 
     if (taxResult.warnings.length > 0) {
       console.log('');
