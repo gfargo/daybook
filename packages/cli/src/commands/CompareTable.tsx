@@ -2,13 +2,14 @@
  * Ink-based comparison table for `daybook compare <year>`.
  *
  * Renders a styled table showing FIFO vs HIFO side by side
- * using Ink's Box and Text components. The method with the
- * lowest total taxable amount is highlighted in green + bold.
+ * using the shared UI component library. The method with the
+ * lowest total taxable amount is highlighted via the `note` color.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { MethodSummary } from '@daybook/tax';
+import { color, formatUsd as fmtUsd, Header, ErrorBlock } from '../ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Props
@@ -25,17 +26,9 @@ export interface CompareTableProps {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Format a decimal string as a USD value with two decimal places
- * and thousands separators.
- */
+/** Format a decimal string as USD. */
 function formatUsd(value: string): string {
-  const num = Number(value);
-  const abs = Math.abs(num).toFixed(2);
-  const [whole, frac] = abs.split('.');
-  const withCommas = whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const formatted = `$${withCommas}.${frac}`;
-  return num < 0 ? `-${formatted}` : formatted;
+  return fmtUsd(Number(value));
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -45,7 +38,7 @@ function formatUsd(value: string): string {
 interface TableRowProps {
   label: string;
   values: string[];
-  highlight?: number; // index of the value to highlight
+  highlight?: number;
   labelWidth: number;
   colWidth: number;
 }
@@ -54,13 +47,13 @@ function TableRow({ label, values, highlight, labelWidth, colWidth }: TableRowPr
   return (
     <Box>
       <Box width={labelWidth}>
-        <Text>{label}</Text>
+        <Text>{color.paper(label)}</Text>
       </Box>
-      <Text>│ </Text>
+      <Text>{color.rule('│')} </Text>
       {values.map((val, i) => (
-        <Box key={i} width={colWidth}>
+        <Box key={i} width={colWidth} justifyContent="flex-end">
           {highlight === i ? (
-            <Text bold color="green">{val}</Text>
+            <Text bold>{color.note(val)}</Text>
           ) : (
             <Text>{val}</Text>
           )}
@@ -75,10 +68,10 @@ function TableRow({ label, values, highlight, labelWidth, colWidth }: TableRowPr
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Renders a comparison table using Ink Box/Text components.
+ * Renders a comparison table using the shared UI library.
  *
  * Shows: Metric | FIFO | HIFO with the lowest total taxable
- * method highlighted in green bold text.
+ * method highlighted in note color + bold.
  */
 export function CompareTable({ summaries, lowestTaxMethod }: CompareTableProps): React.ReactElement {
   const byMethod = new Map<string, MethodSummary>();
@@ -90,13 +83,17 @@ export function CompareTable({ summaries, lowestTaxMethod }: CompareTableProps):
   const hifo = byMethod.get('HIFO');
 
   if (!fifo || !hifo) {
-    return <Text color="red">Comparison requires both FIFO and HIFO results.</Text>;
+    return (
+      <ErrorBlock
+        title="Comparison requires both FIFO and HIFO results"
+        recovery="Run daybook export with both methods first."
+      />
+    );
   }
 
   const methods = ['FIFO', 'HIFO'] as const;
   const methodSummaries = [fifo, hifo];
 
-  // Build rows: [label, fifoValue, hifoValue]
   const rows: Array<{ label: string; values: string[]; highlightLowest?: boolean }> = [
     {
       label: 'Disposal count',
@@ -124,25 +121,22 @@ export function CompareTable({ summaries, lowestTaxMethod }: CompareTableProps):
   const labelWidth = 20;
   const colWidth = 20;
 
-  // Find which column index to highlight for the "Total taxable" row
   const lowestIdx = methods.indexOf(lowestTaxMethod as typeof methods[number]);
-
-  const divider = '─'.repeat(labelWidth - 1) + '┼' + '─'.repeat(colWidth * methods.length + 1);
+  const divider = color.rule('─'.repeat(labelWidth - 1) + '┼' + '─'.repeat(colWidth * methods.length + 1));
 
   return (
     <Box flexDirection="column" paddingLeft={1} paddingTop={1} paddingBottom={1}>
-      <Text bold>Tax Method Comparison</Text>
-      <Text> </Text>
+      <Header>Tax method comparison</Header>
 
       {/* Header */}
       <Box>
         <Box width={labelWidth}>
-          <Text bold>Metric</Text>
+          <Text bold>{color.paper('Metric')}</Text>
         </Box>
-        <Text>│ </Text>
+        <Text>{color.rule('│')} </Text>
         {methods.map(m => (
-          <Box key={m} width={colWidth}>
-            <Text bold>{m}</Text>
+          <Box key={m} width={colWidth} justifyContent="flex-end">
+            <Text bold>{color.paper(m)}</Text>
           </Box>
         ))}
       </Box>
