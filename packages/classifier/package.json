@@ -20,5 +20,8 @@
   "dependencies": {
     "@daybook/ledger": "workspace:*",
     "decimal.js": "^10.4.3"
+  },
+  "devDependencies": {
+    "fast-check": "^4.7.0"
   }
 }

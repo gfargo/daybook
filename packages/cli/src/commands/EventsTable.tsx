@@ -12,6 +12,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { RawEvent } from '@daybook/ledger';
+import { formatNftId } from '@daybook/tax';
 import { color, EmptyState } from '../ui/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -55,8 +56,17 @@ function shouldShowAccount(): boolean {
 // Leg renderer
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Render a single AssetLeg. Fee legs use paper color with a `(fee)` prefix. */
-function LegText({ amount, asset, feeFlag }: { amount: string; asset: string; feeFlag: boolean | undefined }): React.ReactElement {
+/** Render a single AssetLeg. Fee legs use paper color with a `(fee)` prefix. NFT legs show truncated identifier. */
+function LegText({ amount, asset, feeFlag, contractAddress, tokenId }: { amount: string; asset: string; feeFlag: boolean | undefined; contractAddress: string | undefined; tokenId: string | undefined }): React.ReactElement {
+  // NFT legs: show truncated identifier instead of raw asset/amount
+  if (contractAddress && tokenId) {
+    const nftDisplay = formatNftId(contractAddress, tokenId);
+    if (feeFlag) {
+      return <Text>{color.paper(`(fee) ${amount} ${nftDisplay}`)}</Text>;
+    }
+    return <Text>{amount} {nftDisplay}</Text>;
+  }
+
   if (feeFlag) {
     return <Text>{color.paper(`(fee) ${amount} ${asset}`)}</Text>;
   }
@@ -86,7 +96,7 @@ function EventRow({ event, showAccount }: EventRowProps): React.ReactElement {
         {event.legs.map((leg, i) => (
           <React.Fragment key={i}>
             {i > 0 && <Text> / </Text>}
-            <LegText amount={leg.amount} asset={leg.asset} feeFlag={leg.feeFlag} />
+            <LegText amount={leg.amount} asset={leg.asset} feeFlag={leg.feeFlag} contractAddress={leg.contractAddress} tokenId={leg.tokenId} />
           </React.Fragment>
         ))}
       </Box>

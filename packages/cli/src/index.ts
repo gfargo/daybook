@@ -107,7 +107,7 @@ events
   .command('list')
   .description('Browse recent events in a table')
   .option('--limit <n>', 'number of events to show', '20')
-  .option('--type <t>', 'filter by event type (e.g. trade, income, transfer)')
+  .option('--type <t>', 'filter by event type (e.g. trade, income, nft_acquisition, nft_disposal)')
   .option('--source <id>', 'filter to one source')
   .option('--account <id>', 'filter to one account')
   .option('--format <fmt>', 'output format: json')
@@ -116,6 +116,8 @@ events
 Examples:
   daybook events list
   daybook events list --type trade --limit 50
+  daybook events list --type nft_acquisition
+  daybook events list --type nft_disposal
   daybook events list --source eth --format json | jq '.[].type'`)
   .action(eventsListCommand);
 
@@ -123,7 +125,7 @@ Examples:
 
 program
   .command('classify')
-  .description('Run the 7-rule classifier chain over all ingested events')
+  .description('Run the 8-rule classifier chain over all ingested events')
   .option('--dry-run', 'preview changes without writing to the database')
   .option('--review', 'interactively review unclassified entries after classification')
   .option('--no-review', 'skip interactive review')

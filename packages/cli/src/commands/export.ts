@@ -601,6 +601,19 @@ export async function exportCommand(
       }
     }
 
+    // Separate unpriced events into NFT and fungible categories
+    const entryById = new Map(allHydratedEntries.map(e => [e.id, e]));
+    const unpricedNftIds: string[] = [];
+    const unpricedFungibleIds: string[] = [];
+    for (const eid of taxResult.unpricedEvents) {
+      const entry = entryById.get(eid);
+      if (entry && (entry.type === 'nft_acquisition' || entry.type === 'nft_disposal')) {
+        unpricedNftIds.push(eid);
+      } else {
+        unpricedFungibleIds.push(eid);
+      }
+    }
+
     console.log(`Export complete (${yearNum}, ${methodName}, ${format}):`);
     console.log(`  Format:              ${format}`);
     console.log(`  Disposals:           ${taxResult.disposals.length}`);
@@ -608,6 +621,9 @@ export async function exportCommand(
     console.log(`  Long-term gain:      ${longTermGain.toString()}`);
     console.log(`  Total income:        ${taxResult.income.totalUsd}`);
     console.log(`  Unpriced events:     ${taxResult.unpricedEvents.length}`);
+    if (unpricedNftIds.length > 0) {
+      console.log(`  Unpriced NFT events: ${unpricedNftIds.length}`);
+    }
     console.log(`  Output written to:   ${outputPath}`);
 
     // Wash sale candidate summary
@@ -631,7 +647,12 @@ export async function exportCommand(
 
     if (taxResult.unpricedEvents.length > 0) {
       console.log('');
-      console.log('  Use `daybook overrides set <asset> <date> <price>` to set prices for unpriced events.');
+      if (unpricedFungibleIds.length > 0) {
+        console.log('  Use `daybook overrides set <asset> <date> <price>` to set prices for unpriced events.');
+      }
+      if (unpricedNftIds.length > 0) {
+        console.log(`  Use 'daybook overrides set <contractAddress>:<tokenId> <date> <price>' to set NFT prices`);
+      }
     }
   } finally {
     db.close();

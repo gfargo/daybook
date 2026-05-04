@@ -16,6 +16,8 @@ import Decimal from 'decimal.js';
 import type { LedgerEntry, AssetLeg } from '@daybook/ledger';
 import type { CostBasisStrategy } from './cost-basis.js';
 import { LotBook } from './lot-book.js';
+import { NftLotBook } from './nft-lot-book.js';
+import { nftId, formatNftDescription } from './nft-helpers.js';
 import type { TaxResult, DisposalResult, IncomeSummary } from './types.js';
 import { applyWashSaleFlags } from './wash-sale.js';
 import type { AcquisitionRecord } from './wash-sale.js';
@@ -191,6 +193,7 @@ export function computeTax(
   );
 
   const lotBook = new LotBook();
+  const nftLotBook = new NftLotBook();
   const disposals: DisposalResult[] = [];
   const incomeEvents: IncomeEvent[] = [];
   const acquisitions: AcquisitionRecord[] = [];
@@ -405,6 +408,164 @@ export function computeTax(
         break;
       }
 
+      // ─── NFT Acquisition ─────────────────────────────────────────
+      case 'nft_acquisition': {
+        // Find the NFT leg (has contractAddress and tokenId)
+        const nftLeg = entry.legs.find(
+          (l) => l.contractAddress != null && l.tokenId != null,
+        );
+        if (!nftLeg) break;
+
+        // Find the optional payment leg (fungible counterpart with negative amount)
+        const paymentLeg = entry.legs.find(
+          (l) =>
+            l !== nftLeg &&
+            !l.feeFlag &&
+            new Decimal(l.amount).isNegative(),
+        );
+
+        // Derive cost basis from payment leg USD, or zero for airdrops
+        let costBasisUsd = '0';
+        let isUnpriced = false;
+
+        if (paymentLeg) {
+          const paymentUsd = resolveUsd(paymentLeg);
+          if (paymentUsd) {
+            costBasisUsd = new Decimal(paymentUsd).abs().toString();
+          } else {
+            isUnpriced = true;
+          }
+        }
+        // If no payment leg (airdrop), check if the NFT leg itself has a USD value
+        // (from a price override resolved upstream)
+        if (!paymentLeg) {
+          const nftUsd = resolveUsd(nftLeg);
+          if (nftUsd) {
+            costBasisUsd = new Decimal(nftUsd).abs().toString();
+          } else {
+            // Airdrop with no price override → zero cost basis, not unpriced
+            // (airdrops default to zero unless overridden)
+            costBasisUsd = '0';
+          }
+        }
+
+        if (isUnpriced) {
+          unpricedEvents.push(entry.id);
+        }
+
+        const nftIdentifier = nftId(nftLeg.contractAddress!, nftLeg.tokenId!);
+
+        nftLotBook.acquire({
+          nftId: nftIdentifier,
+          costBasisUsd,
+          acquiredAt: entry.timestamp,
+          sourceEntryId: entry.id,
+        });
+
+        // Track acquisition for wash-sale pass (use formatted description as asset)
+        const nftAssetKey = formatNftDescription(nftLeg.contractAddress!, nftLeg.tokenId!);
+        acquisitions.push({ asset: nftAssetKey, acquiredAt: entry.timestamp });
+
+        break;
+      }
+
+      // ─── NFT Disposal ──────────────────────────────────────────────
+      case 'nft_disposal': {
+        // Find the NFT leg (has contractAddress and tokenId)
+        const nftLeg = entry.legs.find(
+          (l) => l.contractAddress != null && l.tokenId != null,
+        );
+        if (!nftLeg) break;
+
+        // Find the optional proceeds leg (fungible counterpart with positive amount)
+        const proceedsLeg = entry.legs.find(
+          (l) =>
+            l !== nftLeg &&
+            !l.feeFlag &&
+            new Decimal(l.amount).isPositive(),
+        );
+
+        const nftIdentifier = nftId(nftLeg.contractAddress!, nftLeg.tokenId!);
+        const nftAssetKey = formatNftDescription(nftLeg.contractAddress!, nftLeg.tokenId!);
+
+        // Look up the lot
+        const lot = nftLotBook.dispose(nftIdentifier);
+
+        let costBasis: Decimal;
+        let acquiredAt: Date;
+
+        if (lot) {
+          costBasis = new Decimal(lot.costBasisUsd);
+          acquiredAt = lot.acquiredAt;
+        } else {
+          // No matching lot — warning + zero cost basis
+          const dateStr = entry.timestamp.toISOString().split('T')[0]!;
+          warnings.push(
+            `Missing cost basis for NFT ${nftIdentifier} disposed on ${dateStr}`,
+          );
+          costBasis = new Decimal(0);
+          acquiredAt = entry.timestamp;
+        }
+
+        // Compute proceeds from counterpart leg USD or zero
+        let proceeds = new Decimal(0);
+        let isUnpriced = false;
+
+        if (proceedsLeg) {
+          const proceedsUsd = resolveUsd(proceedsLeg);
+          if (proceedsUsd) {
+            proceeds = new Decimal(proceedsUsd).abs();
+          } else {
+            isUnpriced = true;
+          }
+        } else {
+          // No proceeds leg — check if the NFT leg itself has a USD value
+          // (from a price override resolved upstream)
+          const nftUsd = resolveUsd(nftLeg);
+          if (nftUsd) {
+            proceeds = new Decimal(nftUsd).abs();
+          }
+          // Transfer out with no price → zero proceeds, not unpriced
+        }
+
+        if (isUnpriced) {
+          unpricedEvents.push(entry.id);
+        }
+
+        const gainLoss = proceeds.minus(costBasis);
+
+        // Determine holding period
+        const holdingMs =
+          entry.timestamp.getTime() - acquiredAt.getTime();
+        const term: 'short-term' | 'long-term' =
+          holdingMs > holdingPeriodDays * MS_PER_DAY
+            ? 'long-term'
+            : 'short-term';
+
+        // Only record disposals that fall within the tax year
+        if (
+          entry.timestamp >= yearStart &&
+          entry.timestamp < yearEnd
+        ) {
+          disposals.push({
+            asset: nftAssetKey,
+            amount: '1',
+            proceeds: proceeds.toString(),
+            costBasis: costBasis.toString(),
+            gainLoss: gainLoss.toString(),
+            term,
+            acquiredAt,
+            disposedAt: entry.timestamp,
+            sourceEntryId: entry.id,
+            lotsConsumed: lot
+              ? [{ lotId: nftIdentifier, amount: '1', costBasis: costBasis.toString() }]
+              : [],
+            washSaleFlag: false,
+          });
+        }
+        break;
+      }
+
       // ─── No tax impact ──────────────────────────────────────────
       case 'transfer_self':
       case 'fiat_in':
@@ -420,6 +581,9 @@ export function computeTax(
 
   // Deduplicate unpriced events
   const uniqueUnpriced = [...new Set(unpricedEvents)];
+
+  // Collect NftLotBook warnings (duplicate acquisitions, etc.)
+  warnings.push(...nftLotBook.warnings);
 
   // ─── Wash-sale pass ────────────────────────────────────────────
   const flaggedDisposals = applyWashSaleFlags(disposals, acquisitions);

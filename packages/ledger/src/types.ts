@@ -178,8 +178,12 @@ export type LedgerEntryType =
   | 'income'
   /** Gas/fee disposal (ETH spent on gas is itself a sale). */
   | 'fee_disposal'
-  /** NFT-related. Stubbed for v1. */
+  /** NFT-related. Stubbed for v1 — kept for backward compat with unclassified NFTs. */
   | 'nft_event'
+  /** NFT acquired: purchase, mint, or airdrop. */
+  | 'nft_acquisition'
+  /** NFT disposed: sale or transfer out. */
+  | 'nft_disposal'
   /** Classifier left this for the user to handle. */
   | 'unclassified';
 

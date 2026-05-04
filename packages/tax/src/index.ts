@@ -67,5 +67,12 @@ export { formatIrsDate, formatMoney } from './format-helpers.js';
 export { applyWashSaleFlags } from './wash-sale.js';
 export type { AcquisitionRecord } from './wash-sale.js';
 
+// ─── NFT lot tracking ────────────────────────────────────────────────────
+export { NftLotBook } from './nft-lot-book.js';
+export type { NftLot } from './nft-lot-book.js';
+
+// ─── NFT helpers ─────────────────────────────────────────────────────────
+export { nftId, formatNftId, formatNftDescription } from './nft-helpers.js';
+
 // ─── Pricing module ──────────────────────────────────────────────────────
 export * from './pricing/index.js';

@@ -36,5 +36,8 @@
     "decimal.js": "^10.4.3",
     "viem": "^2.21.0",
     "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "fast-check": "^4.7.0"
   }
 }

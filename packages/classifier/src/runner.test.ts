@@ -444,3 +444,18 @@ describe('approval gas', () => {
     expect(result.entries[0]!.type).toBe('fee_disposal');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// NFT classification rule ordering (Rule 08)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('NFT rule ordering', () => {
+  it('NFT rule runs at position 08 in DEFAULT_RULES, before default passthrough', () => {
+    const nftRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '08-nft-classification');
+    const defaultRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '07-default');
+
+    expect(nftRuleIndex).toBe(6); // 0-indexed position 6 = 7th rule
+    expect(defaultRuleIndex).toBe(7); // 0-indexed position 7 = 8th rule
+    expect(nftRuleIndex).toBeLessThan(defaultRuleIndex);
+  });
+});
