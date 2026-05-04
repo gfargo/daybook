@@ -2,11 +2,11 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** v0.1.0 — feature-complete. All packages implemented, 205 tests passing.
+**Status:** v0.3.0 — feature-complete. All packages implemented, 437 tests passing.
 
 ## What it does
 
-Pulls transactions from your Coinbase account, Kraken account, and EVM wallets (Ethereum, Polygon), normalizes them into a single ledger, classifies the events (transfers, swaps, income, internal moves), computes cost basis (FIFO/HIFO/Specific ID), flags wash-sale candidates, and exports a tax-ready CSV.
+Pulls transactions from your Coinbase account, Kraken account, and EVM wallets (Ethereum, Polygon), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -16,8 +16,8 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
   sources/      — adapters: Coinbase CSV, Kraken CSV, EVM (Alchemy + Etherscan)
-  classifier/   — transfer matching, swap reconstruction, classification rules
-  tax/          — cost-basis (FIFO/HIFO/Specific ID), wash sale, gain/loss, pricing, CSV exporter
+  classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
+  tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
 ```
 
@@ -119,6 +119,9 @@ daybook export 2024 --no-wash-sale-flag
 # Set a manual price for an unpriced token
 daybook overrides set SOMETOKEN 2024-03-15 0.50
 
+# Set a manual price for an NFT (using contractAddress:tokenId format)
+daybook overrides set 0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d:4523 2024-03-15 50000
+
 # List all price overrides
 daybook overrides list
 
@@ -154,7 +157,7 @@ All syncs are idempotent — running them twice with the same data is a no-op.
 - ✅ Coinbase (CSV import)
 - ✅ Ethereum mainnet (via Alchemy)
 - ✅ Polygon (via Alchemy)
-- ✅ Event classification (7-rule chain + manual overrides)
+- ✅ Event classification (8-rule chain + manual overrides)
 - ✅ Tax-ready CSV output (FIFO + HIFO)
 - ✅ Pricing chain (source-reported → CoinGecko → manual override)
 - ✅ Cost basis method comparison
@@ -170,11 +173,31 @@ All syncs are idempotent — running them twice with the same data is a no-op.
 - ✅ Specific ID lot selection (interactive + JSON replay)
 - ✅ Wash sale flagging
 
+### v1.2 (complete)
+
+- ✅ Form 8949 PDF generation with continuation sheets
+- ✅ Schedule D PDF generation
+- ✅ TXF export for TurboTax import
+- ✅ LIFO cost-basis method
+- ✅ JSON output format on all read commands
+- ✅ Design system with themed Ink rendering
+- ✅ Styled help with usage examples
+- ✅ Non-TTY graceful degradation
+
+### v1.3 (complete)
+
+- ✅ NFT cost-basis tracking (ERC-721 and ERC-1155)
+- ✅ NFT classifier rule (purchases, mints, airdrops, sales, transfers, NFT-for-NFT trades)
+- ✅ NftLotBook (per-NFT indivisible lot tracking)
+- ✅ NFT pricing via counterpart legs or manual overrides
+- ✅ NFT disposals in all export formats (CSV, Form 8949, Schedule D, TXF)
+- ✅ NFT event display and filtering in `daybook events list`
+- ✅ 11 property-based correctness tests for NFT logic
+
 ### Deferred
 
-- ❌ Form 8949 / Schedule D PDF generation (v2)
 - ❌ Live sync daemon (v2)
-- ❌ NFT cost basis (emits placeholder events)
+- ❌ NFT pricing providers (no CoinGecko equivalent — manual override or counterpart leg inference only)
 - ❌ Solana, Bitcoin, other non-EVM chains
 
 See the [deferred section in product.md](.kiro/steering/product.md) for full scope and explicit deferrals.
@@ -183,16 +206,16 @@ See the [deferred section in product.md](.kiro/steering/product.md) for full sco
 
 - `ledger/` — ✅ Types, SQL migrations (001 initial + 002 price overrides), repo with idempotent batch insert, ledger entry CRUD, classifier override persistence.
 - `sources/` — ✅ Coinbase CSV import (full end-to-end). Kraken CSV import with trade pairing, asset normalization, and fee handling. EVM adapter with Alchemy provider (Ethereum + Polygon), bidirectional queries, precision math, token metadata caching. Etherscan provider for failed-tx gas tracking. Block resolver for incremental sync by date or block number.
-- `classifier/` — ✅ 7-rule chain: CB pair merger, self-transfer detection (CB Send notes), cross-source matching (fuzzy ±10min/±0.5%), DEX swap collapse, bridge detection, approval gas accounting, default passthrough. Override system. DEX router + bridge address catalogs.
-- `tax/` — ✅ LotBook with FIFO/HIFO/Specific ID strategies, lot splitting, universal pooling. Wash sale flagging (±30 calendar days, informational only). Pricing chain (source-reported → CoinGecko → manual override) with SQLite cache. CSV export with disposal details, summary footer, and optional Wash Sale? column. Method comparison. POL/MATIC + ETH2/ETH asset aliasing.
+- `classifier/` — ✅ 8-rule chain: CB pair merger, self-transfer detection (CB Send notes), cross-source matching (fuzzy ±10min/±0.5%), DEX swap collapse, bridge detection, approval gas accounting, NFT classification (purchases, mints, airdrops, sales, transfers, NFT-for-NFT trades), default passthrough. Override system. DEX router + bridge address catalogs.
+- `tax/` — ✅ LotBook with FIFO/HIFO/LIFO/Specific ID strategies, lot splitting, universal pooling. NftLotBook for per-NFT indivisible lot tracking. Wash sale flagging (±30 calendar days, informational only). Pricing chain (source-reported → CoinGecko → manual override) with SQLite cache. CSV export with disposal details, summary footer, and optional Wash Sale? column. Form 8949 PDF, Schedule D PDF, and TXF export. Method comparison. POL/MATIC + ETH2/ETH asset aliasing. NFT identifier formatting helpers.
 - `cli/` — ✅ All commands: init, account, sync (Coinbase, Kraken, EVM with `--from` and `--include-failed-gas`), events (Ink table with filters), classify (`--dry-run`, `--review`), export (Specific ID with interactive picker and JSON replay, `--no-wash-sale-flag`), compare, overrides. Ink table rendering for events and compare output. Interactive Ink components for unclassified review and lot selection.
 
 ## Testing
 
-205 tests across 15 test files. Run with:
+437 tests across 25 test files. Run with:
 
 ```bash
 pnpm test
 ```
 
-Coverage includes unit tests per module, property-based tests for lot conservation and decimal precision, wash sale logic, Specific ID strategy, Kraken adapter, Etherscan provider, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).
+Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, Kraken adapter, Etherscan provider, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).

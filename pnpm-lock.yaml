@@ -35,6 +35,10 @@ importers:
       decimal.js:
         specifier: ^10.4.3
         version: 10.6.0
+    devDependencies:
+      fast-check:
+        specifier: ^4.7.0
+        version: 4.7.0
 
   packages/cli:
     dependencies:
@@ -109,6 +113,10 @@ importers:
       zod:
         specifier: ^3.23.0
         version: 3.25.76
+    devDependencies:
+      fast-check:
+        specifier: ^4.7.0
+        version: 4.7.0
 
   packages/tax:
     dependencies:

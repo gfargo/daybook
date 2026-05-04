@@ -10,7 +10,8 @@
  *   4. DEX swap collapse       — group by txHash, fold N transfers into 1 trade
  *   5. Bridge detection        — match outbound bridge tx to destination-chain receive
  *   6. Approval gas accounting — produce fee_disposal events for approve() calls
- *   7. Default passthrough     — direct mapping for everything else
+ *   7. NFT classification      — detect NFT acquisition/disposal patterns by txHash
+ *   8. Default passthrough     — direct mapping for everything else
  */
 
 export { classify, entryId } from './runner.js';
@@ -30,6 +31,7 @@ export { crossSourceMatch } from './rules/03-cross-source-match.js';
 export { dexSwapCollapse } from './rules/04-dex-swap-collapse.js';
 export { bridgeDetection } from './rules/05-bridge-detection.js';
 export { approvalGas } from './rules/06-approval-gas.js';
+export { nftClassification } from './rules/08-nft-classification.js';
 export { defaultPassthrough } from './rules/07-default.js';
 
 // ─── Convenience: the default rule chain ─────────────────────────────────
@@ -39,10 +41,11 @@ import { crossSourceMatch } from './rules/03-cross-source-match.js';
 import { dexSwapCollapse } from './rules/04-dex-swap-collapse.js';
 import { bridgeDetection } from './rules/05-bridge-detection.js';
 import { approvalGas } from './rules/06-approval-gas.js';
+import { nftClassification } from './rules/08-nft-classification.js';
 import { defaultPassthrough } from './rules/07-default.js';
 import type { ClassifierRule } from './types.js';
 
-/** The default rule chain in execution order. */
+/** The default 8-rule chain in execution order. */
 export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   cbPairMerger,
   cbSelfTransfer,
@@ -50,6 +53,7 @@ export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   dexSwapCollapse,
   bridgeDetection,
   approvalGas,
+  nftClassification,
   defaultPassthrough,
 ];
 

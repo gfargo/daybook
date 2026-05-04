@@ -205,6 +205,110 @@ describe('ingestEvm — NFT handling', () => {
   });
 });
 
+describe('ingestEvm — NFT metadata preservation', () => {
+  it('ERC-721 transfer preserves contractAddress and tokenId', async () => {
+    const provider = mockProvider([
+      transfer({
+        providerId: 'erc721-meta-1',
+        category: 'erc721',
+        from: COUNTERPARTY,
+        to: USER_ADDRESS,
+        amount: undefined,
+        asset: 'CoolCats',
+        contractAddress: '0x1a92f7381b9f03921564a437210bb9396471050c',
+        tokenId: '9999',
+      }),
+    ]);
+
+    const { events } = await ingestEvm({ ...baseOpts, provider });
+
+    expect(events[0]!.legs[0]!.contractAddress).toBe(
+      '0x1a92f7381b9f03921564a437210bb9396471050c',
+    );
+    expect(events[0]!.legs[0]!.tokenId).toBe('9999');
+  });
+
+  it('ERC-1155 transfer preserves contractAddress and tokenId', async () => {
+    const provider = mockProvider([
+      transfer({
+        providerId: 'erc1155-meta-1',
+        category: 'erc1155',
+        from: COUNTERPARTY,
+        to: USER_ADDRESS,
+        amount: undefined,
+        asset: null,
+        contractAddress: '0xd07dc4262bcdbf85190c01c996b4c06a461d2430',
+        tokenId: '12345',
+      }),
+    ]);
+
+    const { events } = await ingestEvm({ ...baseOpts, provider });
+
+    expect(events[0]!.legs[0]!.contractAddress).toBe(
+      '0xd07dc4262bcdbf85190c01c996b4c06a461d2430',
+    );
+    expect(events[0]!.legs[0]!.tokenId).toBe('12345');
+  });
+
+  it('missing tokenId defaults to "unknown" with note', async () => {
+    const provider = mockProvider([
+      transfer({
+        providerId: 'nft-no-tokenid',
+        category: 'erc721',
+        from: COUNTERPARTY,
+        to: USER_ADDRESS,
+        amount: undefined,
+        asset: 'SomeNFT',
+        contractAddress: '0xabcdef1234567890abcdef1234567890abcdef12',
+        tokenId: undefined,
+      }),
+    ]);
+
+    const { events } = await ingestEvm({ ...baseOpts, provider });
+
+    expect(events[0]!.legs[0]!.tokenId).toBe('unknown');
+    expect(events[0]!.notes).toBe('Token ID could not be resolved');
+  });
+
+  it('asset field uses symbol when available, contract address as fallback', async () => {
+    // With symbol
+    const withSymbol = mockProvider([
+      transfer({
+        providerId: 'nft-with-symbol',
+        category: 'erc721',
+        from: COUNTERPARTY,
+        to: USER_ADDRESS,
+        amount: undefined,
+        asset: 'BAYC',
+        contractAddress: '0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d',
+        tokenId: '100',
+      }),
+    ]);
+
+    const r1 = await ingestEvm({ ...baseOpts, provider: withSymbol });
+    expect(r1.events[0]!.legs[0]!.asset).toBe('BAYC');
+
+    // Without symbol — falls back to contractAddress
+    const withoutSymbol = mockProvider([
+      transfer({
+        providerId: 'nft-no-symbol',
+        category: 'erc721',
+        from: COUNTERPARTY,
+        to: USER_ADDRESS,
+        amount: undefined,
+        asset: null,
+        contractAddress: '0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d',
+        tokenId: '200',
+      }),
+    ]);
+
+    const r2 = await ingestEvm({ ...baseOpts, provider: withoutSymbol });
+    expect(r2.events[0]!.legs[0]!.asset).toBe(
+      '0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d',
+    );
+  });
+});
+
 describe('ingestEvm — unknown/amountless transfers', () => {
   it('transfer with no amount → unknown event with amount 0', async () => {
     const provider = mockProvider([
@@ -475,5 +579,90 @@ describe('ingestEvm — transfer not involving user', () => {
     const { events } = await ingestEvm({ ...baseOpts, provider });
 
     expect(events).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Property-based tests (fast-check)
+// ─────────────────────────────────────────────────────────────────────────
+
+import * as fc from 'fast-check';
+
+/**
+ * Arbitrary for an ERC-721 or ERC-1155 category.
+ */
+const arbNftCategory = fc.constantFrom('erc721' as const, 'erc1155' as const);
+
+/**
+ * Arbitrary for a non-empty token symbol string (1–10 alphanumeric chars).
+ */
+const ALPHANUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const arbSymbol = fc.array(fc.constantFrom(...ALPHANUM.split('')), { minLength: 1, maxLength: 10 }).map(chars => chars.join(''));
+
+/**
+ * Arbitrary for a hex contract address (0x + 40 hex chars).
+ */
+const HEX_CHARS = '0123456789abcdef';
+const arbContractAddress = fc.array(fc.constantFrom(...HEX_CHARS.split('')), { minLength: 40, maxLength: 40 }).map(chars => `0x${chars.join('')}`);
+
+/**
+ * Arbitrary for a token ID string (positive integer as string).
+ */
+const arbTokenId = fc.nat({ max: 999999 }).map(n => String(n));
+
+/**
+ * Arbitrary for the asset field on a RawTransfer: either a valid symbol, null, or empty string.
+ */
+const arbAssetField = fc.oneof(
+  { weight: 3, arbitrary: arbSymbol },
+  { weight: 1, arbitrary: fc.constant(null as string | null) },
+  { weight: 1, arbitrary: fc.constant('' as string) },
+);
+
+describe('Feature: nft-cost-basis, Property 11: Asset field fallback', () => {
+  /**
+   * **Validates: Requirements 7.3**
+   *
+   * For any ERC-721/1155 RawTransfer, the adapter sets asset to token symbol
+   * when available, or contract address when symbol is null/empty.
+   */
+  it('asset field uses token symbol when available, contract address when symbol is null/empty', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        arbNftCategory,
+        arbAssetField,
+        arbContractAddress,
+        arbTokenId,
+        fc.nat({ max: 999999 }),
+        async (category, assetValue, contractAddr, tokenId, seed) => {
+          const provider = mockProvider([
+            transfer({
+              providerId: `prop11-${seed}`,
+              category,
+              from: COUNTERPARTY,
+              to: USER_ADDRESS,
+              amount: undefined,
+              asset: assetValue === '' ? null : assetValue,
+              contractAddress: contractAddr,
+              tokenId,
+            }),
+          ]);
+
+          const { events } = await ingestEvm({ ...baseOpts, provider });
+
+          expect(events).toHaveLength(1);
+          const leg = events[0]!.legs[0]!;
+
+          if (assetValue !== null && assetValue !== '') {
+            // Symbol is available → asset should be the symbol
+            expect(leg.asset).toBe(assetValue);
+          } else {
+            // Symbol is null or empty → asset should fall back to contract address
+            expect(leg.asset).toBe(contractAddr);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
   });
 });

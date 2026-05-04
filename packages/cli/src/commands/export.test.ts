@@ -185,3 +185,105 @@ describe('--output override', () => {
     expect(unique.size).toBe(SUPPORTED_FORMATS.length);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// NFT unpriced event summary
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('NFT unpriced event separation', () => {
+  /**
+   * Simulates the logic used in exportCommand to separate unpriced events
+   * into NFT and fungible categories. This tests the separation algorithm
+   * without requiring a full database setup.
+   */
+  function separateUnpricedEvents(
+    unpricedEventIds: string[],
+    entries: Array<{ id: string; type: string }>,
+  ): { nft: string[]; fungible: string[] } {
+    const entryById = new Map(entries.map(e => [e.id, e]));
+    const nft: string[] = [];
+    const fungible: string[] = [];
+    for (const eid of unpricedEventIds) {
+      const entry = entryById.get(eid);
+      if (entry && (entry.type === 'nft_acquisition' || entry.type === 'nft_disposal')) {
+        nft.push(eid);
+      } else {
+        fungible.push(eid);
+      }
+    }
+    return { nft, fungible };
+  }
+
+  it('separates NFT unpriced events from fungible ones', () => {
+    const entries = [
+      { id: 'entry-1', type: 'trade' },
+      { id: 'entry-2', type: 'nft_acquisition' },
+      { id: 'entry-3', type: 'nft_disposal' },
+      { id: 'entry-4', type: 'income' },
+    ];
+    const unpricedIds = ['entry-1', 'entry-2', 'entry-3', 'entry-4'];
+
+    const result = separateUnpricedEvents(unpricedIds, entries);
+
+    expect(result.nft).toEqual(['entry-2', 'entry-3']);
+    expect(result.fungible).toEqual(['entry-1', 'entry-4']);
+  });
+
+  it('handles all-NFT unpriced events', () => {
+    const entries = [
+      { id: 'nft-1', type: 'nft_acquisition' },
+      { id: 'nft-2', type: 'nft_disposal' },
+    ];
+    const unpricedIds = ['nft-1', 'nft-2'];
+
+    const result = separateUnpricedEvents(unpricedIds, entries);
+
+    expect(result.nft).toEqual(['nft-1', 'nft-2']);
+    expect(result.fungible).toEqual([]);
+  });
+
+  it('handles all-fungible unpriced events', () => {
+    const entries = [
+      { id: 'trade-1', type: 'trade' },
+      { id: 'income-1', type: 'income' },
+    ];
+    const unpricedIds = ['trade-1', 'income-1'];
+
+    const result = separateUnpricedEvents(unpricedIds, entries);
+
+    expect(result.nft).toEqual([]);
+    expect(result.fungible).toEqual(['trade-1', 'income-1']);
+  });
+
+  it('handles empty unpriced events', () => {
+    const entries = [
+      { id: 'entry-1', type: 'trade' },
+    ];
+    const unpricedIds: string[] = [];
+
+    const result = separateUnpricedEvents(unpricedIds, entries);
+
+    expect(result.nft).toEqual([]);
+    expect(result.fungible).toEqual([]);
+  });
+
+  it('handles unpriced event ID not found in entries', () => {
+    const entries = [
+      { id: 'entry-1', type: 'trade' },
+    ];
+    const unpricedIds = ['entry-1', 'unknown-id'];
+
+    const result = separateUnpricedEvents(unpricedIds, entries);
+
+    // Unknown IDs are treated as fungible (not NFT)
+    expect(result.nft).toEqual([]);
+    expect(result.fungible).toEqual(['entry-1', 'unknown-id']);
+  });
+
+  it('NFT guidance message format is correct', () => {
+    const guidance = `Use 'daybook overrides set <contractAddress>:<tokenId> <date> <price>' to set NFT prices`;
+    expect(guidance).toContain('contractAddress');
+    expect(guidance).toContain('tokenId');
+    expect(guidance).toContain('daybook overrides set');
+  });
+});

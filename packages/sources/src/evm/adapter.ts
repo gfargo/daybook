@@ -129,11 +129,12 @@ function translate(
   // ─── NFT branch ────────────────────────────────────────────────────
   // ERC-721/1155 → `nft_event` placeholder. Tax engine ignores in v1.
   if (t.category === 'erc721' || t.category === 'erc1155') {
+    const tokenId = t.tokenId || 'unknown';
     const leg: AssetLeg = {
       asset: t.asset ?? t.contractAddress ?? 'NFT',
       amount: sign + '1',
       ...(t.contractAddress ? { contractAddress: t.contractAddress } : {}),
-      ...(t.tokenId ? { tokenId: t.tokenId } : {}),
+      tokenId,
     };
     return {
       id,
@@ -144,6 +145,7 @@ function translate(
       legs: [leg],
       txHash: t.txHash,
       ...(counterparty ? { counterparty } : {}),
+      ...(!t.tokenId ? { notes: 'Token ID could not be resolved' } : {}),
       raw: t.raw,
     };
   }
