@@ -144,71 +144,13 @@ All syncs are idempotent — running them twice with the same data is a no-op.
 | `daybook compare <year>` | Compare FIFO vs HIFO side by side |
 | `daybook overrides set/list/remove` | Manage manual price overrides |
 
-## Documents
+## Roadmap
 
-1. **`docs/data-model-spec.md`** — concrete data model from inspecting real Coinbase + on-chain data.
-2. **`docs/implementation-plan.md`** — v1 phase decomposition and v1.1 enhancements with effort estimates and risk register.
-3. **`docs/tax-strategy-config.md`** — configurable tax-treatment dimensions for v2.
+See [open issues](https://github.com/gfargo/daybook/issues) for planned features and enhancements.
 
-## Scope
+## Changelog
 
-### v1 (complete)
-
-- ✅ Coinbase (CSV import)
-- ✅ Ethereum mainnet (via Alchemy)
-- ✅ Polygon (via Alchemy)
-- ✅ Event classification (8-rule chain + manual overrides)
-- ✅ Tax-ready CSV output (FIFO + HIFO)
-- ✅ Pricing chain (source-reported → CoinGecko → manual override)
-- ✅ Cost basis method comparison
-
-### v1.1 (complete)
-
-- ✅ Kraken CSV adapter
-- ✅ `daybook events list` Ink table with filtering
-- ✅ Failed transaction gas tracking (Etherscan)
-- ✅ `daybook classify --dry-run`
-- ✅ Interactive unclassified event review (`--review`)
-- ✅ Incremental sync (`--from <date|block>`)
-- ✅ Specific ID lot selection (interactive + JSON replay)
-- ✅ Wash sale flagging
-
-### v1.2 (complete)
-
-- ✅ Form 8949 PDF generation with continuation sheets
-- ✅ Schedule D PDF generation
-- ✅ TXF export for TurboTax import
-- ✅ LIFO cost-basis method
-- ✅ JSON output format on all read commands
-- ✅ Design system with themed Ink rendering
-- ✅ Styled help with usage examples
-- ✅ Non-TTY graceful degradation
-
-### v1.3 (complete)
-
-- ✅ NFT cost-basis tracking (ERC-721 and ERC-1155)
-- ✅ NFT classifier rule (purchases, mints, airdrops, sales, transfers, NFT-for-NFT trades)
-- ✅ NftLotBook (per-NFT indivisible lot tracking)
-- ✅ NFT pricing via counterpart legs or manual overrides
-- ✅ NFT disposals in all export formats (CSV, Form 8949, Schedule D, TXF)
-- ✅ NFT event display and filtering in `daybook events list`
-- ✅ 11 property-based correctness tests for NFT logic
-
-### Deferred
-
-- ❌ Live sync daemon (v2)
-- ❌ NFT pricing providers (no CoinGecko equivalent — manual override or counterpart leg inference only)
-- ❌ Solana, Bitcoin, other non-EVM chains
-
-See the [deferred section in product.md](.kiro/steering/product.md) for full scope and explicit deferrals.
-
-## Status by package
-
-- `ledger/` — ✅ Types, SQL migrations (001 initial + 002 price overrides), repo with idempotent batch insert, ledger entry CRUD, classifier override persistence.
-- `sources/` — ✅ Coinbase CSV import (full end-to-end). Kraken CSV import with trade pairing, asset normalization, and fee handling. EVM adapter with Alchemy provider (Ethereum + Polygon), bidirectional queries, precision math, token metadata caching. Etherscan provider for failed-tx gas tracking. Block resolver for incremental sync by date or block number.
-- `classifier/` — ✅ 8-rule chain: CB pair merger, self-transfer detection (CB Send notes), cross-source matching (fuzzy ±10min/±0.5%), DEX swap collapse, bridge detection, approval gas accounting, NFT classification (purchases, mints, airdrops, sales, transfers, NFT-for-NFT trades), default passthrough. Override system. DEX router + bridge address catalogs.
-- `tax/` — ✅ LotBook with FIFO/HIFO/LIFO/Specific ID strategies, lot splitting, universal pooling. NftLotBook for per-NFT indivisible lot tracking. Wash sale flagging (±30 calendar days, informational only). Pricing chain (source-reported → CoinGecko → manual override) with SQLite cache. CSV export with disposal details, summary footer, and optional Wash Sale? column. Form 8949 PDF, Schedule D PDF, and TXF export. Method comparison. POL/MATIC + ETH2/ETH asset aliasing. NFT identifier formatting helpers.
-- `cli/` — ✅ All commands: init, account, sync (Coinbase, Kraken, EVM with `--from` and `--include-failed-gas`), events (Ink table with filters), classify (`--dry-run`, `--review`), export (Specific ID with interactive picker and JSON replay, `--no-wash-sale-flag`), compare, overrides. Ink table rendering for events and compare output. Interactive Ink components for unclassified review and lot selection.
+See [GitHub Releases](https://github.com/gfargo/daybook/releases) for version history and release notes.
 
 ## Testing
 
