@@ -80,3 +80,73 @@ describe('syncCommand generic CSV', () => {
     })).rejects.toThrow('`--from` is not supported for Generic CSV imports');
   });
 });
+
+describe('syncCommand Binance CSV', () => {
+  it('imports Binance ledger CSV rows into the configured Binance account', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-binance-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+    const csvPath = join(dir, 'binance.csv');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-binance', source: 'binance', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-binance',
+      source: 'binance',
+      identifier: 'user@example.com',
+    });
+    db.close();
+
+    writeFileSync(csvPath, [
+      'User_ID,UTC_Time,Account,Operation,Coin,Change,Remark',
+      '123,2024-01-01 00:00:00,Spot,Buy,ETH,0.5,order-001',
+      '123,2024-01-01 00:00:00,Spot,Sell,USDT,-1000,order-001',
+    ].join('\n'), 'utf-8');
+
+    await syncCommand({ source: 'binance', file: csvPath, config: configPath });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const events = verifyRepo.getRawEvents({ source: 'binance', limit: 10 });
+    verifyDb.close();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe('trade');
+    expect(events[0]!.legs).toEqual([
+      { asset: 'ETH', amount: '0.5' },
+      { asset: 'USDT', amount: '-1000' },
+    ]);
+
+    expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'Binance',
+      accountId: 'main-binance',
+      totalRows: 2,
+      eventCount: 1,
+      inserted: 1,
+      skipped: 0,
+    }));
+  });
+
+  it('rejects --from for Binance.US CSV imports', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-binance-us-'));
+    const configPath = join(dir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      dbPath: join(dir, 'data.db'),
+      accounts: [],
+    }), 'utf-8');
+
+    await expect(syncCommand({
+      source: 'binance-us',
+      file: join(dir, 'ledger.csv'),
+      config: configPath,
+      from: '2024-01-01',
+    })).rejects.toThrow('`--from` is not supported for Binance.US CSV imports');
+  });
+});

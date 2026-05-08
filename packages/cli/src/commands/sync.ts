@@ -2,6 +2,8 @@
  * `daybook sync` — pull new events from a source and persist.
  *
  * v1 supports:
+ *   --source binance --file <path>    CSV import
+ *   --source binance-us --file <path> CSV import
  *   --source coinbase --file <path>   CSV import
  *   --source kraken --file <path>     CSV import
  *   --source csv --file <path>        Generic CSV import
@@ -11,7 +13,8 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { coinbase, genericCsv, kraken } from '@daybook/sources';
+import { binance, coinbase, genericCsv, kraken } from '@daybook/sources';
+import type { BinanceCsvSource } from '@daybook/sources/binance';
 import {
     AlchemyTransferProvider,
     CHAIN_ID_BY_SOURCE,
@@ -39,13 +42,17 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 
   try {
     // Guard: --from is only supported for EVM sources.
-    if (opts.from && (opts.source === 'coinbase' || opts.source === 'kraken' || opts.source === 'csv')) {
+    if (opts.from && isCsvImportSource(opts.source)) {
       throw new Error(
         `\`--from\` is not supported for ${formatCsvSourceName(opts.source)} CSV imports. Filter by date after import.`,
       );
     }
 
     switch (opts.source) {
+      case 'binance':
+      case 'binance-us':
+        await syncBinance(opts, config, repo, opts.source);
+        break;
       case 'coinbase':
         await syncCoinbase(opts, config, repo);
         break;
@@ -67,8 +74,16 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
   }
 }
 
+function isCsvImportSource(source: string): boolean {
+  return ['binance', 'binance-us', 'coinbase', 'kraken', 'csv'].includes(source);
+}
+
 function formatCsvSourceName(source: string): string {
   switch (source) {
+    case 'binance':
+      return 'Binance';
+    case 'binance-us':
+      return 'Binance.US';
     case 'coinbase':
       return 'Coinbase';
     case 'kraken':
@@ -78,6 +93,56 @@ function formatCsvSourceName(source: string): string {
     default:
       return source;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Binance / Binance.US CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncBinance(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+  source: BinanceCsvSource,
+): Promise<void> {
+  const sourceName = formatCsvSourceName(source);
+  if (!opts.file) {
+    throw new Error(`${sourceName} sync requires --file <path-to-csv>`);
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === source)?.id;
+  if (!accountId) {
+    throw new Error(
+      `No ${sourceName} account configured. Add one with \`daybook account add <id> --source ${source} --identifier <email>\` first.`,
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== source) {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not ${source}.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = binance.parseBinanceCsv(csvContents, { accountId, source });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: sourceName,
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
 }
 
 async function syncCoinbase(

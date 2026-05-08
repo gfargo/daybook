@@ -31,6 +31,8 @@ export type SourceId =
   | 'coinbase'
   | 'coinbase-advanced'
   | 'csv'
+  | 'binance'
+  | 'binance-us'
   | 'kraken'  // v1.1
   | 'eth'
   | 'polygon'

@@ -2,11 +2,11 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 457 tests passing locally.
+**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 464 tests passing locally.
 
 ## What it does
 
-Pulls transactions from your Coinbase account, Kraken account, generic CSV exports, and EVM wallets (Ethereum, Polygon), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Coinbase CSV, Kraken CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Binance CSV, Binance.US CSV, Coinbase CSV, Kraken CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -60,6 +60,18 @@ daybook account add main-kraken \
   --identifier you@example.com \
   --label "My Kraken"
 
+# Add your Binance account
+daybook account add main-binance \
+  --source binance \
+  --identifier you@example.com \
+  --label "My Binance"
+
+# Add your Binance.US account
+daybook account add main-binance-us \
+  --source binance-us \
+  --identifier you@example.com \
+  --label "My Binance.US"
+
 # Add a generic CSV import bucket
 daybook account add csv-imports \
   --source csv \
@@ -86,6 +98,10 @@ daybook sync --source coinbase --file ~/Downloads/Coinbase-All-Transactions.csv
 
 # Import Kraken CSV
 daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
+
+# Import Binance / Binance.US CSV
+daybook sync --source binance --file ~/Downloads/binance-ledger.csv
+daybook sync --source binance-us --file ~/Downloads/binance-us-tax.csv
 
 # Import a universal/manual crypto ledger CSV
 daybook sync --source csv --file ~/Downloads/universal-ledger.csv
@@ -157,6 +173,22 @@ Date,Type,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount
 ```
 
 Aliases like `Timestamp`, `Label`, `Tag`, `Sent Quantity`, `Received Quantity`, `Buy Amount`, `Sell Amount`, `Transaction ID`, and `Fee` are also accepted. Fiat currencies such as `USD`, `EUR`, and `GBP` are treated as fiat; stablecoins such as `USDC` and `USDT` are treated as crypto assets.
+
+### Binance CSV formats
+
+`--source binance` accepts Binance ledger-style exports with:
+
+```csv
+User_ID,UTC_Time,Account,Operation,Coin,Change,Remark
+```
+
+Rows sharing a timestamp, account, and remark are grouped into trades when they include both positive and negative trade legs. Fee rows in the same group are attached as fee legs.
+
+`--source binance-us` also accepts tax-report style exports with primary/base/quote/fee asset columns such as:
+
+```csv
+Time,Category,Operation,Order_ID,Transaction_ID,Primary_Asset,Realized_Amount_For_Primary_Asset,Quote_Asset,Realized_Amount_For_Quote_Asset,Fee_Asset,Realized_Amount_For_Fee_Asset
+```
 
 ## CLI Commands
 

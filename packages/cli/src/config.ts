@@ -25,6 +25,8 @@ const SourceIdSchema = z.enum([
   'coinbase',
   'coinbase-advanced',
   'csv',
+  'binance',
+  'binance-us',
   'kraken',
   'eth',
   'polygon',
