@@ -117,6 +117,84 @@ describe('computeTax', () => {
     });
   });
 
+  describe('stablecoin accounting', () => {
+    it('tracks USDC as a crypto lot instead of treating it as USD fiat', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-usdc',
+          timestamp: new Date('2023-01-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'USDC', amount: '1000', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-usdc',
+          timestamp: new Date('2024-01-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'USDC', amount: '-1000', amountUsdAtTime: '995' },
+            { asset: 'USD', amount: '995', amountUsdAtTime: '995' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      expect(result.disposals[0]).toMatchObject({
+        asset: 'USDC',
+        amount: '1000',
+        proceeds: '995',
+        costBasis: '1000',
+        gainLoss: '-5',
+      });
+    });
+
+    it('tracks USDT as a crypto lot instead of treating it as USD fiat', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-usdt',
+          timestamp: new Date('2023-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'USDT', amount: '250', amountUsdAtTime: '250' },
+            { asset: 'USD', amount: '-250', amountUsdAtTime: '250' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-usdt',
+          timestamp: new Date('2024-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'USDT', amount: '-250', amountUsdAtTime: '251' },
+            { asset: 'USD', amount: '251', amountUsdAtTime: '251' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      expect(result.disposals[0]).toMatchObject({
+        asset: 'USDT',
+        amount: '250',
+        proceeds: '251',
+        costBasis: '250',
+        gainLoss: '1',
+      });
+    });
+  });
+
   // ─── Test 3: Fee subtraction from proceeds ───────────────────────────
   describe('fee subtraction from proceeds', () => {
     it('subtracts fee USD from proceeds before computing gain', () => {

@@ -12,11 +12,25 @@ import { createRepo, openDatabase } from '@daybook/ledger';
 import { type Config, expandPath, loadConfig, saveConfig } from '../config.js';
 import { writeJson } from '../ui/index.js';
 
+const SUPPORTED_ACCOUNT_SOURCES = ['coinbase', 'kraken', 'eth', 'polygon'] as const;
+type SupportedAccountSource = typeof SUPPORTED_ACCOUNT_SOURCES[number];
+
 export interface AccountAddOptions {
   source: string;
   identifier: string;
   label?: string;
   config?: string;
+}
+
+export function resolveAccountSource(source: string): SupportedAccountSource {
+  if ((SUPPORTED_ACCOUNT_SOURCES as readonly string[]).includes(source)) {
+    return source as SupportedAccountSource;
+  }
+
+  throw new Error(
+    `Unsupported account source: "${source}". ` +
+    `Supported sources: ${SUPPORTED_ACCOUNT_SOURCES.join(', ')}`,
+  );
 }
 
 export async function accountAddCommand(
@@ -25,6 +39,7 @@ export async function accountAddCommand(
 ): Promise<void> {
   const configPath = opts.config;
   const config = loadConfig(configPath);
+  const source = resolveAccountSource(opts.source);
 
   // Reject duplicate IDs in config; user can edit JSON if they really want a change.
   if (config.accounts.some(a => a.id === id)) {
@@ -35,7 +50,7 @@ export async function accountAddCommand(
 
   const newAccount = {
     id,
-    source: opts.source as Config['accounts'][number]['source'],
+    source,
     identifier: opts.identifier,
     ...(opts.label ? { label: opts.label } : {}),
   };
@@ -53,7 +68,7 @@ export async function accountAddCommand(
   repo.upsertAccount(newAccount);
   db.close();
 
-  console.log(`Added account "${id}" (${opts.source} / ${opts.identifier}).`);
+  console.log(`Added account "${id}" (${source} / ${opts.identifier}).`);
 }
 
 export interface AccountListOptions {

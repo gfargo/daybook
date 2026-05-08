@@ -7,7 +7,15 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      exclude: ['**/dist/**', '**/*.test.ts'],
+      include: ['packages/*/src/**/*.ts', 'packages/*/src/**/*.tsx'],
+      exclude: [
+        '**/dist/**',
+        '**/*.test.ts',
+        '**/*.test.tsx',
+        '**/node_modules/**',
+        '.www/**',
+        'docs/**',
+      ],
     },
   },
 });

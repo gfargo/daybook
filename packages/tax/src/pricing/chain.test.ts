@@ -12,6 +12,8 @@ import type { Database as DatabaseInstance } from 'better-sqlite3';
 import type { PriceResult, PricingProvider } from './provider.js';
 import { PriceCache, dayUtc } from './cache.js';
 import { PricingChain } from './chain.js';
+import { ManualOverrideProvider } from './providers/manual-override.js';
+import { SourceReportedProvider } from './providers/source-reported.js';
 
 // ─── Test helpers ────────────────────────────────────────────────────────
 
@@ -44,6 +46,24 @@ function createPricingSchema(db: DatabaseInstance): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_price_overrides_asset_day ON price_overrides(asset, day);
+
+    CREATE TABLE IF NOT EXISTS raw_events (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      raw_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS raw_event_legs (
+      event_id TEXT NOT NULL,
+      leg_index INTEGER NOT NULL,
+      asset TEXT NOT NULL,
+      amount TEXT NOT NULL,
+      amount_usd_reported_by_source TEXT,
+      PRIMARY KEY (event_id, leg_index)
+    );
   `);
 }
 
@@ -92,7 +112,7 @@ describe('PricingChain', () => {
     const coingecko = mockProvider('coingecko', { ETH: '2310.00' });
 
     const chain = new PricingChain(
-      { providers: [sourceReported, coingecko], autoZeroBelowUsd: '1.00' },
+      { providers: [sourceReported, coingecko] },
       cache,
     );
 
@@ -107,7 +127,7 @@ describe('PricingChain', () => {
     const coingecko = mockProvider('coingecko', { ETH: '2310.00' });
 
     const chain = new PricingChain(
-      { providers: [sourceReported, coingecko], autoZeroBelowUsd: '1.00' },
+      { providers: [sourceReported, coingecko] },
       cache,
     );
 
@@ -133,7 +153,7 @@ describe('PricingChain', () => {
     };
 
     const chain = new PricingChain(
-      { providers: [provider], autoZeroBelowUsd: '1.00' },
+      { providers: [provider] },
       cache,
     );
 
@@ -144,11 +164,45 @@ describe('PricingChain', () => {
     expect(providerCalled).toBe(false);
   });
 
+  it('manual override bypasses cached market price without replacing it', async () => {
+    const day = dayUtc(JAN_15);
+    cache.set('ETH', day, 'coingecko', '2300.00');
+
+    db.prepare(`
+      INSERT INTO price_overrides (id, asset, day, price_usd, note, created_at)
+      VALUES ('ETH:1705276800', 'ETH', ?, '2400.00', NULL, ?)
+    `).run(day, Math.floor(Date.now() / 1000));
+
+    const chain = new PricingChain(
+      {
+        providers: [
+          mockProvider('coingecko', { ETH: '9999.99' }),
+          new ManualOverrideProvider(db),
+        ],
+      },
+      cache,
+    );
+
+    const overrideResult = await chain.priceAt('ETH', JAN_15);
+    expect(overrideResult).toEqual({
+      priceUsd: '2400.00',
+      source: 'manual-override',
+    });
+
+    db.prepare('DELETE FROM price_overrides WHERE asset = ? AND day = ?').run('ETH', day);
+
+    const cachedResult = await chain.priceAt('ETH', JAN_15);
+    expect(cachedResult).toEqual({
+      priceUsd: '2300.00',
+      source: 'coingecko',
+    });
+  });
+
   it('asset alias (POL → MATIC) is applied before lookup', async () => {
     const provider = mockProvider('coingecko', { MATIC: '0.85' });
 
     const chain = new PricingChain(
-      { providers: [provider], autoZeroBelowUsd: '1.00' },
+      { providers: [provider] },
       cache,
     );
 
@@ -166,7 +220,6 @@ describe('PricingChain', () => {
           nullProvider('coingecko'),
           nullProvider('manual-override'),
         ],
-        autoZeroBelowUsd: '1.00',
       },
       cache,
     );
@@ -186,7 +239,7 @@ describe('PricingChain', () => {
     };
 
     const chain = new PricingChain(
-      { providers: [provider], autoZeroBelowUsd: '1.00' },
+      { providers: [provider] },
       cache,
     );
 
@@ -205,13 +258,35 @@ describe('PricingChain', () => {
     const provider = mockProvider('coingecko', { ETH: '2500.00' });
 
     const chain = new PricingChain(
-      { providers: [provider], autoZeroBelowUsd: '1.00' },
+      { providers: [provider] },
       cache,
     );
 
     const result = await chain.priceAt('ETH2', JAN_15);
     expect(result).not.toBeNull();
     expect(result!.priceUsd).toBe('2500.00');
+  });
+});
+
+describe('SourceReportedProvider', () => {
+  it('returns unit price, not total source-reported leg value', async () => {
+    const timestamp = Math.floor(JAN_15.getTime() / 1000);
+    db.prepare(`
+      INSERT INTO raw_events (id, source, account_id, timestamp, type, raw_json)
+      VALUES ('evt-1', 'coinbase', 'acct-1', ?, 'trade', '{}')
+    `).run(timestamp);
+    db.prepare(`
+      INSERT INTO raw_event_legs
+        (event_id, leg_index, asset, amount, amount_usd_reported_by_source)
+      VALUES ('evt-1', 0, 'ETH', '2', '4600')
+    `).run();
+
+    const provider = new SourceReportedProvider(db);
+    const result = await provider.getPrice('ETH', JAN_15);
+
+    expect(result).not.toBeNull();
+    expect(result!.priceUsd).toBe('2300');
+    expect(result!.source).toBe('source-reported');
   });
 });
 

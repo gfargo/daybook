@@ -95,15 +95,14 @@ function unitCost(leg: AssetLeg, totalUsd: string): string {
 }
 
 /**
- * Check if a leg represents USD (fiat). USD legs are skipped in
- * lot tracking since fiat is not a crypto asset.
+ * Check if a leg represents USD fiat. Stablecoins such as USDC and USDT are
+ * crypto assets for lot tracking and must not be treated as cash.
  *
  * @param leg - The asset leg to check.
  * @returns True if the leg is a USD fiat leg.
  */
 function isUsdLeg(leg: AssetLeg): boolean {
-  const asset = leg.asset.toUpperCase();
-  return asset === 'USD' || asset === 'USDC' || asset === 'USDT';
+  return leg.asset.toUpperCase() === 'USD';
 }
 
 // ─────────────────────────────────────────────────────────────────────────

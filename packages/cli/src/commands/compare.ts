@@ -41,112 +41,6 @@ export interface CompareOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Table rendering helpers
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Format a decimal string as a USD value with two decimal places.
- *
- * @param value - Decimal string to format.
- * @returns Formatted USD string (e.g. '$1,234.56' or '-$42.00').
- */
-function formatUsd(value: string): string {
-  const d = new Decimal(value);
-  const abs = d.abs().toFixed(2);
-  // Add thousands separators
-  const [whole, frac] = abs.split('.');
-  const withCommas = whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const formatted = `$${withCommas}.${frac}`;
-  return d.isNegative() ? `-${formatted}` : formatted;
-}
-
-/**
- * Render a plain-text comparison table to stdout.
- *
- * Columns: Metric | FIFO | HIFO
- * Rows: Disposal count, Short-term gain, Long-term gain, Total taxable, Income
- * The method with the lowest total taxable amount is marked with ← lowest.
- *
- * @param summaries - Array of MethodSummary objects from summarizeResults().
- * @param lowestTaxMethod - The method name with the lowest total taxable.
- */
-function renderTable(summaries: MethodSummary[], lowestTaxMethod: string): void {
-  // Build a map for easy lookup
-  const byMethod = new Map<string, MethodSummary>();
-  for (const s of summaries) {
-    byMethod.set(s.method, s);
-  }
-
-  const fifo = byMethod.get('FIFO');
-  const hifo = byMethod.get('HIFO');
-
-  if (!fifo || !hifo) {
-    console.log('Comparison requires both FIFO and HIFO results.');
-    return;
-  }
-
-  // Build row data: [label, fifoValue, hifoValue]
-  const rows: Array<[string, string, string]> = [
-    ['Disposal count', String(fifo.disposalCount), String(hifo.disposalCount)],
-    ['Short-term gain', formatUsd(fifo.shortTermGain), formatUsd(hifo.shortTermGain)],
-    ['Long-term gain', formatUsd(fifo.longTermGain), formatUsd(hifo.longTermGain)],
-    ['Total taxable', formatUsd(fifo.totalTaxable), formatUsd(hifo.totalTaxable)],
-    ['Income', formatUsd(fifo.incomeTotal), formatUsd(hifo.incomeTotal)],
-  ];
-
-  // Compute column widths
-  const headers = ['Metric', 'FIFO', 'HIFO'];
-  const colWidths = headers.map((h, i) => {
-    const dataMax = Math.max(...rows.map(r => r[i]!.length));
-    return Math.max(h.length, dataMax);
-  });
-
-  // Add space for the marker on the method columns
-  const marker = ' ← lowest';
-  const markerLen = marker.length;
-
-  // Adjust column widths for the marker on total taxable row
-  // We'll add the marker after the value, so ensure enough space
-  const fifoTotalMarked = lowestTaxMethod === 'FIFO';
-  const hifoTotalMarked = lowestTaxMethod === 'HIFO';
-
-  if (fifoTotalMarked) {
-    colWidths[1] = Math.max(colWidths[1]!, formatUsd(fifo.totalTaxable).length + markerLen);
-  }
-  if (hifoTotalMarked) {
-    colWidths[2] = Math.max(colWidths[2]!, formatUsd(hifo.totalTaxable).length + markerLen);
-  }
-
-  // Render
-  const sep = '─';
-  const pad = (s: string, w: number) => s.padEnd(w);
-
-  const headerLine = `  ${pad(headers[0]!, colWidths[0]!)}  │  ${pad(headers[1]!, colWidths[1]!)}  │  ${pad(headers[2]!, colWidths[2]!)}`;
-  const divider = `  ${sep.repeat(colWidths[0]!)}──┼──${sep.repeat(colWidths[1]!)}──┼──${sep.repeat(colWidths[2]!)}`;
-
-  console.log('');
-  console.log(`  Tax Method Comparison (${fifo.disposalCount > 0 ? 'with' : 'no'} disposals)`);
-  console.log('');
-  console.log(headerLine);
-  console.log(divider);
-
-  for (const [label, fifoVal, hifoVal] of rows) {
-    let fifoDisplay = fifoVal;
-    let hifoDisplay = hifoVal;
-
-    // Add marker to the total taxable row
-    if (label === 'Total taxable') {
-      if (fifoTotalMarked) fifoDisplay = fifoVal + marker;
-      if (hifoTotalMarked) hifoDisplay = hifoVal + marker;
-    }
-
-    console.log(`  ${pad(label, colWidths[0]!)}  │  ${pad(fifoDisplay, colWidths[1]!)}  │  ${pad(hifoDisplay, colWidths[2]!)}`);
-  }
-
-  console.log('');
-}
-
-// ─────────────────────────────────────────────────────────────────────────
 // Ink table rendering
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -221,7 +115,6 @@ export async function compareCommand(
           new CoinGeckoProvider(coingeckoOpts),
           new ManualOverrideProvider(db.raw),
         ],
-        autoZeroBelowUsd: '1.00',
       },
       cache,
     );

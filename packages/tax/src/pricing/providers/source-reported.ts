@@ -11,6 +11,7 @@
  */
 
 import type { Database as DatabaseInstance } from 'better-sqlite3';
+import Decimal from 'decimal.js';
 import type { PriceResult, PricingProvider } from '../provider.js';
 import { dayUtc } from '../cache.js';
 
@@ -22,7 +23,8 @@ import { dayUtc } from '../cache.js';
  * Looks up source-reported USD prices from the `raw_event_legs` table.
  *
  * Matches by asset ticker (case-insensitive) and calendar day (UTC).
- * Returns the first non-null `amount_usd_reported_by_source` found.
+ * Returns a unit price derived from the first nearby non-null
+ * `amount_usd_reported_by_source` found.
  */
 export class SourceReportedProvider implements PricingProvider {
   readonly name = 'source-reported';
@@ -34,13 +36,15 @@ export class SourceReportedProvider implements PricingProvider {
     // The timestamp in raw_events is unix seconds; we compare the day
     // boundaries to match any event on the same calendar day.
     this.stmt = db.prepare(`
-      SELECT rel.amount_usd_reported_by_source
+      SELECT rel.amount, rel.amount_usd_reported_by_source
       FROM raw_event_legs rel
       JOIN raw_events re ON re.id = rel.event_id
       WHERE UPPER(rel.asset) = UPPER(?)
         AND re.timestamp >= ?
         AND re.timestamp < ?
         AND rel.amount_usd_reported_by_source IS NOT NULL
+        AND rel.amount != '0'
+      ORDER BY ABS(re.timestamp - ?)
       LIMIT 1
     `);
   }
@@ -59,14 +63,22 @@ export class SourceReportedProvider implements PricingProvider {
     const day = dayUtc(timestamp);
     const nextDay = day + 86400; // +24h in seconds
 
-    const row = this.stmt.get(asset, day, nextDay) as
-      | { amount_usd_reported_by_source: string }
+    const eventTimestamp = Math.floor(timestamp.getTime() / 1000);
+
+    const row = this.stmt.get(asset, day, nextDay, eventTimestamp) as
+      | { amount: string; amount_usd_reported_by_source: string }
       | undefined;
 
     if (!row) return null;
 
+    const amount = new Decimal(row.amount).abs();
+    if (amount.isZero()) return null;
+
     return {
-      priceUsd: row.amount_usd_reported_by_source,
+      priceUsd: new Decimal(row.amount_usd_reported_by_source)
+        .abs()
+        .div(amount)
+        .toString(),
       source: this.name,
     };
   }

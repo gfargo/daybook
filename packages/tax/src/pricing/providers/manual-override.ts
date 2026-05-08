@@ -23,6 +23,7 @@ import { dayUtc } from '../cache.js';
  */
 export class ManualOverrideProvider implements PricingProvider {
   readonly name = 'manual-override';
+  readonly cacheMode = 'bypass';
 
   private readonly stmt;
 

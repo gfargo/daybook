@@ -79,30 +79,6 @@ function parseDateToDay(dateStr: string): number {
   return Math.floor(d.getTime() / 1000);
 }
 
-/**
- * Format unix seconds at 00:00 UTC back to a YYYY-MM-DD string.
- *
- * @param day - Unix seconds at midnight UTC.
- * @returns Formatted date string.
- */
-function formatDay(day: number): string {
-  const d = new Date(day * 1000);
-  const yyyy = d.getUTCFullYear();
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-/**
- * Format an ISO timestamp for display.
- *
- * @param date - Date object.
- * @returns Formatted datetime string.
- */
-function formatTimestamp(date: Date): string {
-  return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Command handlers
 // ─────────────────────────────────────────────────────────────────────────
