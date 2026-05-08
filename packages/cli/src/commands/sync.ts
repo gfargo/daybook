@@ -3,13 +3,15 @@
  *
  * v1 supports:
  *   --source coinbase --file <path>   CSV import
+ *   --source kraken --file <path>     CSV import
+ *   --source csv --file <path>        Generic CSV import
  *   --source eth|polygon              EVM sync via Alchemy
  */
 
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { coinbase, kraken } from '@daybook/sources';
+import { coinbase, genericCsv, kraken } from '@daybook/sources';
 import {
     AlchemyTransferProvider,
     CHAIN_ID_BY_SOURCE,
@@ -37,9 +39,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 
   try {
     // Guard: --from is only supported for EVM sources.
-    if (opts.from && (opts.source === 'coinbase' || opts.source === 'kraken')) {
+    if (opts.from && (opts.source === 'coinbase' || opts.source === 'kraken' || opts.source === 'csv')) {
       throw new Error(
-        `\`--from\` is not supported for ${opts.source === 'coinbase' ? 'Coinbase' : 'Kraken'} CSV imports. Filter by date after import.`,
+        `\`--from\` is not supported for ${formatCsvSourceName(opts.source)} CSV imports. Filter by date after import.`,
       );
     }
 
@@ -50,6 +52,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'kraken':
         await syncKraken(opts, config, repo);
         break;
+      case 'csv':
+        await syncGenericCsv(opts, config, repo);
+        break;
       case 'eth':
       case 'polygon':
         await syncEvm(opts, config, repo);
@@ -59,6 +64,19 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
     }
   } finally {
     db.close();
+  }
+}
+
+function formatCsvSourceName(source: string): string {
+  switch (source) {
+    case 'coinbase':
+      return 'Coinbase';
+    case 'kraken':
+      return 'Kraken';
+    case 'csv':
+      return 'Generic';
+    default:
+      return source;
   }
 }
 
@@ -162,6 +180,54 @@ async function syncKraken(
     eventCount: result.events.length,
     inserted: insertResult.inserted,
     skipped: insertResult.skipped,
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Generic CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncGenericCsv(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('Generic CSV sync requires --file <path-to-csv>');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'csv')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No CSV account configured. Add one with `daybook account add <id> --source csv --identifier manual-ledger` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'csv') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not csv.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = genericCsv.parseGenericCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Generic CSV',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
     ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
     dbCounts,
   });

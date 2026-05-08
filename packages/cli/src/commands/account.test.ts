@@ -9,6 +9,7 @@ describe('resolveAccountSource', () => {
   it('accepts currently implemented sync sources', () => {
     expect(resolveAccountSource('coinbase')).toBe('coinbase');
     expect(resolveAccountSource('kraken')).toBe('kraken');
+    expect(resolveAccountSource('csv')).toBe('csv');
     expect(resolveAccountSource('eth')).toBe('eth');
     expect(resolveAccountSource('polygon')).toBe('polygon');
   });
@@ -18,7 +19,7 @@ describe('resolveAccountSource', () => {
       'Unsupported account source',
     );
     expect(() => resolveAccountSource('base')).toThrow(
-      'Supported sources: coinbase, kraken, eth, polygon',
+      'Supported sources: coinbase, kraken, csv, eth, polygon',
     );
   });
 });

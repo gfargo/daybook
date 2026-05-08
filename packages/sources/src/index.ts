@@ -7,4 +7,5 @@
 
 export * as coinbase from './coinbase/index.js';
 export * as evm from './evm/index.js';
+export * as genericCsv from './generic-csv/index.js';
 export * as kraken from './kraken/index.js';

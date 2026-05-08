@@ -2,11 +2,11 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 449 tests passing locally.
+**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 457 tests passing locally.
 
 ## What it does
 
-Pulls transactions from your Coinbase account, Kraken account, and EVM wallets (Ethereum, Polygon), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account, Kraken account, generic CSV exports, and EVM wallets (Ethereum, Polygon), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Coinbase CSV, Kraken CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Coinbase CSV, Kraken CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -60,6 +60,12 @@ daybook account add main-kraken \
   --identifier you@example.com \
   --label "My Kraken"
 
+# Add a generic CSV import bucket
+daybook account add csv-imports \
+  --source csv \
+  --identifier manual-ledger \
+  --label "Universal CSV"
+
 # Add your EVM wallets
 daybook account add eth-main \
   --source eth \
@@ -80,6 +86,9 @@ daybook sync --source coinbase --file ~/Downloads/Coinbase-All-Transactions.csv
 
 # Import Kraken CSV
 daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
+
+# Import a universal/manual crypto ledger CSV
+daybook sync --source csv --file ~/Downloads/universal-ledger.csv
 
 # Sync EVM wallets (requires ALCHEMY_API_KEY env var)
 daybook sync --source eth
@@ -138,6 +147,16 @@ daybook overrides remove <id>
 ```
 
 All syncs are idempotent — running them twice with the same data is a no-op.
+
+### Generic CSV format
+
+There is no single industry-standard crypto ledger CSV, so `--source csv` accepts the common universal/manual ledger shape used by crypto tax tools. Preferred columns are:
+
+```csv
+Date,Type,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount,Fee Currency,Net Worth Amount,Net Worth Currency,Description,TxHash
+```
+
+Aliases like `Timestamp`, `Label`, `Tag`, `Sent Quantity`, `Received Quantity`, `Buy Amount`, `Sell Amount`, `Transaction ID`, and `Fee` are also accepted. Fiat currencies such as `USD`, `EUR`, and `GBP` are treated as fiat; stablecoins such as `USDC` and `USDT` are treated as crypto assets.
 
 ## CLI Commands
 
