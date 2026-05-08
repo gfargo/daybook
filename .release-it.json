@@ -14,10 +14,11 @@
   },
   "npm": {
     "publish": true,
-    "publishPath": "packages/cli"
+    "publishPath": "packages/cli",
+    "publishArgs": ["--access", "public"]
   },
   "hooks": {
-    "before:init": "pnpm typecheck && pnpm test && pnpm build",
+    "before:init": "pnpm build && pnpm typecheck && pnpm lint && pnpm test",
     "after:bump": "node scripts/sync-versions.js ${version}"
   }
 }

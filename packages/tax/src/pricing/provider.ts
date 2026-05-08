@@ -37,6 +37,15 @@ export interface PricingProvider {
   readonly name: string;
 
   /**
+   * Whether this provider should bypass the shared price cache.
+   *
+   * Manual overrides use this so a user-entered correction always wins over
+   * stale cached market data and does not leave a cached override behind after
+   * removal.
+   */
+  readonly cacheMode?: 'read-write' | 'bypass';
+
+  /**
    * Look up the USD price of an asset at a given timestamp.
    *
    * @param asset - Ticker symbol (e.g. 'ETH', 'BTC') or contract address.

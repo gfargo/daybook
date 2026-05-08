@@ -231,10 +231,9 @@ function buildPendingDisposals(
   const pending: PendingDisposal[] = [];
   let lotCounter = 0;
 
-  /** Check if a leg is a USD fiat leg. */
+  /** Check if a leg is USD fiat. Stablecoins are crypto assets. */
   function isUsdLeg(leg: import('@daybook/ledger').AssetLeg): boolean {
-    const asset = leg.asset.toUpperCase();
-    return asset === 'USD' || asset === 'USDC' || asset === 'USDT';
+    return leg.asset.toUpperCase() === 'USD';
   }
 
   /** Resolve USD value for a leg. */
@@ -418,7 +417,6 @@ export async function exportCommand(
           new CoinGeckoProvider(coingeckoOpts),
           new ManualOverrideProvider(db.raw),
         ],
-        autoZeroBelowUsd: '1.00',
       },
       cache,
     );
@@ -475,13 +473,6 @@ export async function exportCommand(
     let strategy: CostBasisStrategy;
 
     if (isSpecificId) {
-      // First pass with FIFO to discover disposals and build lot state
-      const fifoResult = computeTax(allHydratedEntries, {
-        method: FIFO,
-        holdingPeriodDays: 365,
-        year: yearNum,
-      });
-
       if (opts.lotSelections) {
         // Load selections from file
         const selections = loadLotSelections(opts.lotSelections);
@@ -527,7 +518,7 @@ export async function exportCommand(
           return;
         }
 
-        const { selections, skippedIndices } = await runLotPicker(pendingDisposals);
+        const { selections } = await runLotPicker(pendingDisposals);
 
         // Serialize selections for replay
         const selectionsObj = Object.fromEntries(selections);

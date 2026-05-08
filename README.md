@@ -2,7 +2,7 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** v0.3.0 — feature-complete. All packages implemented, 437 tests passing.
+**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 449 tests passing locally.
 
 ## What it does
 
@@ -24,6 +24,14 @@ packages/
 Packages depend in one direction: `cli → tax → classifier → ledger`, with `sources → ledger`. No cycles.
 
 ## Setup
+
+Install the CLI:
+
+```bash
+npm install -g @gfargo/daybook
+```
+
+Or run from source:
 
 ```bash
 pnpm install
@@ -154,10 +162,10 @@ See [GitHub Releases](https://github.com/gfargo/daybook/releases) for version hi
 
 ## Testing
 
-437 tests across 25 test files. Run with:
+449 tests across 28 test files. Run with:
 
 ```bash
 pnpm test
 ```
 
-Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, Kraken adapter, Etherscan provider, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).
+Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, stablecoin lot accounting, Kraken adapter, Alchemy and Etherscan providers, CoinGecko pricing, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).
