@@ -51,13 +51,14 @@ const account = program
 account
   .command('add <id>')
   .description('Register a new source account')
-  .requiredOption('--source <id>', 'source type: coinbase, kraken, eth, polygon')
+  .requiredOption('--source <id>', 'source type: coinbase, kraken, csv, eth, polygon')
   .requiredOption('--identifier <id>', 'wallet address or exchange account email')
   .option('--label <text>', 'human-readable label for this account')
   .option('--config <path>', 'config file path')
   .addHelpText('after', `
 Examples:
   daybook account add main-coinbase --source coinbase --identifier you@example.com
+  daybook account add csv-imports --source csv --identifier manual-ledger
   daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"`)
   .action(accountAddCommand);
 
@@ -73,8 +74,8 @@ account
 program
   .command('sync')
   .description('Pull new events from a source and persist them')
-  .requiredOption('--source <id>', 'source type: coinbase, kraken, eth, polygon')
-  .option('--file <path>', 'CSV file path (required for coinbase, kraken)')
+  .requiredOption('--source <id>', 'source type: coinbase, kraken, csv, eth, polygon')
+  .option('--file <path>', 'CSV file path (required for coinbase, kraken, csv)')
   .option('--account <id>', 'target account (defaults to first matching source)')
   .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
   .option('--from <date|block>', 'sync from this date (ISO 8601) or block number (EVM only)')
@@ -83,6 +84,7 @@ program
 Examples:
   daybook sync --source coinbase --file ~/Downloads/Coinbase.csv
   daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
+  daybook sync --source csv --file ~/Downloads/universal-ledger.csv
   daybook sync --source eth
   daybook sync --source eth --from 2024-01-01
   daybook sync --source eth --include-failed-gas`)

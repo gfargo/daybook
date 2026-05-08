@@ -30,6 +30,7 @@ import type Decimal from 'decimal.js';
 export type SourceId =
   | 'coinbase'
   | 'coinbase-advanced'
+  | 'csv'
   | 'kraken'  // v1.1
   | 'eth'
   | 'polygon'
