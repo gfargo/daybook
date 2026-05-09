@@ -33,6 +33,7 @@ const SourceIdSchema = z.enum([
   'arbitrum',
   'base',
   'optimism',
+  'bnb',
   'solana',
   'bitcoin',
 ]);

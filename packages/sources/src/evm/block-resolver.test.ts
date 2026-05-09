@@ -58,6 +58,7 @@ vi.mock('alchemy-sdk', () => {
     ARB_MAINNET: 'arb-mainnet',
     OPT_MAINNET: 'opt-mainnet',
     BASE_MAINNET: 'base-mainnet',
+    BNB_MAINNET: 'bnb-mainnet',
   };
 
   class MockAlchemy {
@@ -166,6 +167,13 @@ describe('resolveFromBlock — unparseable input', () => {
 });
 
 describe('resolveFromBlock — unsupported chain', () => {
+  it.each([42161, 10, 8453, 56])('supports numeric passthrough for chain ID %i', async (chainId) => {
+    const result = await resolveFromBlock('19000000', chainId, 'test-key');
+
+    expect(result.blockNumber).toBe(19000000n);
+    expect(result.timestamp).toBeInstanceOf(Date);
+  });
+
   it('throws for an unsupported chain ID', async () => {
     await expect(
       resolveFromBlock('19000000', 999, 'test-key'),

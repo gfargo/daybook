@@ -9,7 +9,7 @@
  *   1. Always use `rawContract.value` (hex) + `rawContract.decimal` (hex) for
  *      amount math. The SDK's `value: number` field loses precision above 2^53.
  *   2. `uniqueId` is stable across calls — used as our `RawEvent.id` source.
- *   3. Internal transfers only available on ETH mainnet + Polygon mainnet.
+ *   3. Internal transfers depend on Alchemy chain support.
  *   4. Token metadata is cached in-memory keyed by `${chainId}:${contractAddress}`.
  *
  * Note: The alchemy-sdk-js repo was archived March 2026. Package still works.
@@ -45,6 +45,7 @@ const NETWORK_BY_CHAIN_ID: Record<number, Network> = {
   42161: Network.ARB_MAINNET,
   10: Network.OPT_MAINNET,
   8453: Network.BASE_MAINNET,
+  56: Network.BNB_MAINNET,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
