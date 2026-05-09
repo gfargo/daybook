@@ -28,6 +28,7 @@ const SourceIdSchema = z.enum([
   'binance',
   'binance-us',
   'kraken',
+  'robinhood',
   'eth',
   'polygon',
   'arbitrum',

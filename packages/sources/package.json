@@ -31,10 +31,14 @@
     "./kraken": {
       "types": "./dist/kraken/index.d.ts",
       "import": "./dist/kraken/index.js"
+    },
+    "./robinhood": {
+      "types": "./dist/robinhood/index.d.ts",
+      "import": "./dist/robinhood/index.js"
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/binance/index.ts src/coinbase/index.ts src/evm/index.ts src/generic-csv/index.ts src/kraken/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
+    "build": "tsup src/index.ts src/binance/index.ts src/coinbase/index.ts src/evm/index.ts src/generic-csv/index.ts src/kraken/index.ts src/robinhood/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
     "test": "vitest run"
   },
   "dependencies": {

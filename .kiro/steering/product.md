@@ -16,6 +16,7 @@ daybook is a self-hosted crypto wallet auditing and tax reporting CLI for users 
 - Kraken CSV
 - Binance CSV
 - Binance.US CSV
+- Robinhood CSV
 - Generic universal/manual crypto ledger CSV
 - Ethereum wallet history via Alchemy
 - Polygon wallet history via Alchemy

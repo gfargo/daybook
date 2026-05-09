@@ -2,11 +2,11 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 478 tests passing locally.
+**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 485 tests passing locally.
 
 ## What it does
 
-Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Binance CSV, Binance.US CSV, Coinbase CSV, Kraken CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Binance CSV, Binance.US CSV, Coinbase CSV, Kraken CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -72,6 +72,12 @@ daybook account add main-binance-us \
   --identifier you@example.com \
   --label "My Binance.US"
 
+# Add your Robinhood account
+daybook account add main-robinhood \
+  --source robinhood \
+  --identifier you@example.com \
+  --label "My Robinhood"
+
 # Add a generic CSV import bucket
 daybook account add csv-imports \
   --source csv \
@@ -107,6 +113,9 @@ daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
 # Import Binance / Binance.US CSV
 daybook sync --source binance --file ~/Downloads/binance-ledger.csv
 daybook sync --source binance-us --file ~/Downloads/binance-us-tax.csv
+
+# Import Robinhood Crypto CSV
+daybook sync --source robinhood --file ~/Downloads/robinhood-crypto.csv
 
 # Import a universal/manual crypto ledger CSV
 daybook sync --source csv --file ~/Downloads/universal-ledger.csv
@@ -200,6 +209,16 @@ Rows sharing a timestamp, account, and remark are grouped into trades when they 
 Time,Category,Operation,Order_ID,Transaction_ID,Primary_Asset,Realized_Amount_For_Primary_Asset,Quote_Asset,Realized_Amount_For_Quote_Asset,Fee_Asset,Realized_Amount_For_Fee_Asset
 ```
 
+### Robinhood CSV formats
+
+`--source robinhood` accepts Robinhood Crypto transaction-history style exports with columns such as:
+
+```csv
+Transaction Date,Transaction Type,Crypto Symbol,Crypto Amount,Crypto Price,Total,Fee,Fee Currency,Transaction ID
+```
+
+It also accepts common account-activity aliases such as `Activity Date`, `Trans Code`, `Instrument`, `Quantity`, `Price`, and `Amount`. Buys, sells, transfers, fees, and rewards are normalized when the row has enough asset movement data. Ambiguous rows are skipped with warnings rather than silently imported.
+
 ## CLI Commands
 
 | Command | Description |
@@ -223,10 +242,10 @@ See [GitHub Releases](https://github.com/gfargo/daybook/releases) for version hi
 
 ## Testing
 
-478 tests across 32 test files. Run with:
+485 tests across 33 test files. Run with:
 
 ```bash
 pnpm test
 ```
 
-Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, stablecoin lot accounting, Kraken/Binance/generic CSV adapters, Alchemy and Etherscan providers, EVM source mappings, CoinGecko pricing, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).
+Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, stablecoin lot accounting, exchange CSV adapters, Alchemy and Etherscan providers, EVM source mappings, CoinGecko pricing, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).

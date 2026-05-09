@@ -24,8 +24,7 @@ import {
 } from './commands/overrides.js';
 
 const program = new Command();
-
-const SOURCE_HELP = 'source type: coinbase, kraken, csv, binance, binance-us, eth, polygon, arbitrum, base, optimism, bnb';
+const SOURCE_HELP = 'source type: coinbase, kraken, csv, binance, binance-us, robinhood, eth, polygon, arbitrum, base, optimism, bnb';
 
 program
   .name('daybook')
@@ -61,6 +60,7 @@ account
 Examples:
   daybook account add main-coinbase --source coinbase --identifier you@example.com
   daybook account add main-binance --source binance --identifier you@example.com
+  daybook account add main-robinhood --source robinhood --identifier you@example.com
   daybook account add csv-imports --source csv --identifier manual-ledger
   daybook account add base-main --source base --identifier 0xYourAddress --label "Main Base"
   daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"`)
@@ -79,7 +79,7 @@ program
   .command('sync')
   .description('Pull new events from a source and persist them')
   .requiredOption('--source <id>', SOURCE_HELP)
-  .option('--file <path>', 'CSV file path (required for coinbase, kraken, csv, binance, binance-us)')
+  .option('--file <path>', 'CSV file path (required for coinbase, kraken, csv, binance, binance-us, robinhood)')
   .option('--account <id>', 'target account (defaults to first matching source)')
   .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
   .option('--from <date|block>', 'sync from this date (ISO 8601) or block number (EVM only)')
@@ -88,6 +88,7 @@ program
 Examples:
   daybook sync --source binance --file ~/Downloads/binance-ledger.csv
   daybook sync --source binance-us --file ~/Downloads/binance-us-tax.csv
+  daybook sync --source robinhood --file ~/Downloads/robinhood-crypto.csv
   daybook sync --source coinbase --file ~/Downloads/Coinbase.csv
   daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
   daybook sync --source csv --file ~/Downloads/universal-ledger.csv
