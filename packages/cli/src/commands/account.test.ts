@@ -12,6 +12,7 @@ describe('resolveAccountSource', () => {
     expect(resolveAccountSource('csv')).toBe('csv');
     expect(resolveAccountSource('binance')).toBe('binance');
     expect(resolveAccountSource('binance-us')).toBe('binance-us');
+    expect(resolveAccountSource('gemini')).toBe('gemini');
     expect(resolveAccountSource('robinhood')).toBe('robinhood');
     expect(resolveAccountSource('eth')).toBe('eth');
     expect(resolveAccountSource('polygon')).toBe('polygon');
@@ -26,7 +27,7 @@ describe('resolveAccountSource', () => {
       'Unsupported account source',
     );
     expect(() => resolveAccountSource('solana')).toThrow(
-      'Supported sources: coinbase, kraken, csv, binance, binance-us, robinhood, eth, polygon, arbitrum, base, optimism, bnb',
+      'Supported sources: coinbase, kraken, csv, binance, binance-us, gemini, robinhood, eth, polygon, arbitrum, base, optimism, bnb',
     );
   });
 });

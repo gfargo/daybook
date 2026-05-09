@@ -18,6 +18,7 @@ const SUPPORTED_ACCOUNT_SOURCES = [
   'csv',
   'binance',
   'binance-us',
+  'gemini',
   'robinhood',
   'eth',
   'polygon',

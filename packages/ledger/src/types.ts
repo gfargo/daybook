@@ -33,6 +33,7 @@ export type SourceId =
   | 'csv'
   | 'binance'
   | 'binance-us'
+  | 'gemini'
   | 'kraken'  // v1.1
   | 'robinhood'
   | 'eth'
