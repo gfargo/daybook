@@ -151,6 +151,76 @@ describe('syncCommand Binance CSV', () => {
   });
 });
 
+describe('syncCommand Gemini CSV', () => {
+  it('imports Gemini CSV rows into the configured Gemini account', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-gemini-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+    const csvPath = join(dir, 'gemini.csv');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-gemini', source: 'gemini', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-gemini',
+      source: 'gemini',
+      identifier: 'user@example.com',
+    });
+    db.close();
+
+    writeFileSync(csvPath, [
+      'Date,Type,Symbol,Quantity,Price,Amount,Trade ID',
+      '2024-01-01 00:00:00,Buy,BTCUSD,0.01,42000,420,gem-buy-1',
+    ].join('\n'), 'utf-8');
+
+    await syncCommand({ source: 'gemini', file: csvPath, config: configPath });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const events = verifyRepo.getRawEvents({ source: 'gemini', limit: 10 });
+    verifyDb.close();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.id).toBe('gemini:gem-buy-1');
+    expect(events[0]!.type).toBe('trade');
+    expect(events[0]!.legs).toEqual([
+      { asset: 'BTC', amount: '0.01' },
+      { asset: 'USD', amount: '-420' },
+    ]);
+
+    expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'Gemini',
+      accountId: 'main-gemini',
+      totalRows: 1,
+      eventCount: 1,
+      inserted: 1,
+      skipped: 0,
+    }));
+  });
+
+  it('rejects --from for Gemini CSV imports', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-gemini-'));
+    const configPath = join(dir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      dbPath: join(dir, 'data.db'),
+      accounts: [],
+    }), 'utf-8');
+
+    await expect(syncCommand({
+      source: 'gemini',
+      file: join(dir, 'ledger.csv'),
+      config: configPath,
+      from: '2024-01-01',
+    })).rejects.toThrow('`--from` is not supported for Gemini CSV imports');
+  });
+});
+
 describe('syncCommand Robinhood CSV', () => {
   it('imports Robinhood CSV rows into the configured Robinhood account', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-robinhood-'));

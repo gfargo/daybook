@@ -5,6 +5,7 @@
  *   --source binance --file <path>    CSV import
  *   --source binance-us --file <path> CSV import
  *   --source coinbase --file <path>   CSV import
+ *   --source gemini --file <path>     CSV import
  *   --source kraken --file <path>     CSV import
  *   --source robinhood --file <path>  CSV import
  *   --source csv --file <path>        Generic CSV import
@@ -14,7 +15,7 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { binance, coinbase, genericCsv, kraken, robinhood } from '@daybook/sources';
+import { binance, coinbase, gemini, genericCsv, kraken, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
 import {
     AlchemyTransferProvider,
@@ -57,6 +58,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'coinbase':
         await syncCoinbase(opts, config, repo);
         break;
+      case 'gemini':
+        await syncGemini(opts, config, repo);
+        break;
       case 'kraken':
         await syncKraken(opts, config, repo);
         break;
@@ -83,7 +87,7 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 function isCsvImportSource(source: string): boolean {
-  return ['binance', 'binance-us', 'coinbase', 'kraken', 'robinhood', 'csv'].includes(source);
+  return ['binance', 'binance-us', 'coinbase', 'gemini', 'kraken', 'robinhood', 'csv'].includes(source);
 }
 
 function formatCsvSourceName(source: string): string {
@@ -94,6 +98,8 @@ function formatCsvSourceName(source: string): string {
       return 'Binance.US';
     case 'coinbase':
       return 'Coinbase';
+    case 'gemini':
+      return 'Gemini';
     case 'kraken':
       return 'Kraken';
     case 'robinhood':
@@ -204,6 +210,54 @@ async function syncCoinbase(
     skipped: insertResult.skipped,
     ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Gemini CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncGemini(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('Gemini sync requires --file <path-to-csv>');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'gemini')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Gemini account configured. Add one with `daybook account add <id> --source gemini --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'gemini') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not gemini.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = gemini.parseGeminiCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Gemini',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
     dbCounts,
   });
 }
