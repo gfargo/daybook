@@ -19,6 +19,10 @@ daybook is a self-hosted crypto wallet auditing and tax reporting CLI for users 
 - Generic universal/manual crypto ledger CSV
 - Ethereum wallet history via Alchemy
 - Polygon wallet history via Alchemy
+- Base wallet history via Alchemy
+- Arbitrum wallet history via Alchemy
+- Optimism wallet history via Alchemy
+- BNB Chain wallet history via Alchemy
 - Failed Ethereum transaction gas via Etherscan
 
 ## Near-Term Priorities

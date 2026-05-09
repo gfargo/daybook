@@ -36,10 +36,11 @@ export type SourceId =
   | 'kraken'  // v1.1
   | 'eth'
   | 'polygon'
-  // Future:
   | 'arbitrum'
   | 'base'
   | 'optimism'
+  | 'bnb'
+  // Future:
   | 'solana'
   | 'bitcoin';
 

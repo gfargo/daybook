@@ -23,6 +23,7 @@ const NETWORK_BY_CHAIN_ID: Record<number, Network> = {
   42161: Network.ARB_MAINNET,
   10: Network.OPT_MAINNET,
   8453: Network.BASE_MAINNET,
+  56: Network.BNB_MAINNET,
 };
 
 // ─────────────────────────────────────────────────────────────────────────

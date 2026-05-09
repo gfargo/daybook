@@ -25,6 +25,8 @@ import {
 
 const program = new Command();
 
+const SOURCE_HELP = 'source type: coinbase, kraken, csv, binance, binance-us, eth, polygon, arbitrum, base, optimism, bnb';
+
 program
   .name('daybook')
   .description('Self-hosted crypto wallet auditing and tax reporting')
@@ -51,7 +53,7 @@ const account = program
 account
   .command('add <id>')
   .description('Register a new source account')
-  .requiredOption('--source <id>', 'source type: coinbase, kraken, csv, binance, binance-us, eth, polygon')
+  .requiredOption('--source <id>', SOURCE_HELP)
   .requiredOption('--identifier <id>', 'wallet address or exchange account email')
   .option('--label <text>', 'human-readable label for this account')
   .option('--config <path>', 'config file path')
@@ -60,6 +62,7 @@ Examples:
   daybook account add main-coinbase --source coinbase --identifier you@example.com
   daybook account add main-binance --source binance --identifier you@example.com
   daybook account add csv-imports --source csv --identifier manual-ledger
+  daybook account add base-main --source base --identifier 0xYourAddress --label "Main Base"
   daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"`)
   .action(accountAddCommand);
 
@@ -75,7 +78,7 @@ account
 program
   .command('sync')
   .description('Pull new events from a source and persist them')
-  .requiredOption('--source <id>', 'source type: coinbase, kraken, csv, binance, binance-us, eth, polygon')
+  .requiredOption('--source <id>', SOURCE_HELP)
   .option('--file <path>', 'CSV file path (required for coinbase, kraken, csv, binance, binance-us)')
   .option('--account <id>', 'target account (defaults to first matching source)')
   .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
@@ -89,6 +92,7 @@ Examples:
   daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
   daybook sync --source csv --file ~/Downloads/universal-ledger.csv
   daybook sync --source eth
+  daybook sync --source base
   daybook sync --source eth --from 2024-01-01
   daybook sync --source eth --include-failed-gas`)
   .action(syncCommand);
