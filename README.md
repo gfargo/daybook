@@ -200,7 +200,7 @@ Time,Category,Operation,Order_ID,Transaction_ID,Primary_Asset,Realized_Amount_Fo
 | `daybook events count/list` | Inspect raw events (with `--type`, `--source`, `--account` filters) |
 | `daybook classify` | Run classifier rules (with `--dry-run`, `--review`) |
 | `daybook export <year>` | Export tax-ready CSV (with `--method`, `--lot-selections`, `--no-wash-sale-flag`) |
-| `daybook compare <year>` | Compare FIFO vs HIFO side by side |
+| `daybook compare <year>` | Compare FIFO, HIFO, and LIFO side by side |
 | `daybook overrides set/list/remove` | Manage manual price overrides |
 
 ## Roadmap
@@ -213,7 +213,7 @@ See [GitHub Releases](https://github.com/gfargo/daybook/releases) for version hi
 
 ## Testing
 
-449 tests across 28 test files. Run with:
+464 tests across 31 test files. Run with:
 
 ```bash
 pnpm test
