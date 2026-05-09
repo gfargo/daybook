@@ -34,6 +34,7 @@ export type SourceId =
   | 'binance'
   | 'binance-us'
   | 'kraken'  // v1.1
+  | 'robinhood'
   | 'eth'
   | 'polygon'
   // Future:

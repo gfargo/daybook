@@ -6,6 +6,7 @@
  *   --source binance-us --file <path> CSV import
  *   --source coinbase --file <path>   CSV import
  *   --source kraken --file <path>     CSV import
+ *   --source robinhood --file <path>  CSV import
  *   --source csv --file <path>        Generic CSV import
  *   --source eth|polygon              EVM sync via Alchemy
  */
@@ -13,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { binance, coinbase, genericCsv, kraken } from '@daybook/sources';
+import { binance, coinbase, genericCsv, kraken, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
 import {
     AlchemyTransferProvider,
@@ -59,6 +60,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'kraken':
         await syncKraken(opts, config, repo);
         break;
+      case 'robinhood':
+        await syncRobinhood(opts, config, repo);
+        break;
       case 'csv':
         await syncGenericCsv(opts, config, repo);
         break;
@@ -75,7 +79,7 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 function isCsvImportSource(source: string): boolean {
-  return ['binance', 'binance-us', 'coinbase', 'kraken', 'csv'].includes(source);
+  return ['binance', 'binance-us', 'coinbase', 'kraken', 'robinhood', 'csv'].includes(source);
 }
 
 function formatCsvSourceName(source: string): string {
@@ -88,6 +92,8 @@ function formatCsvSourceName(source: string): string {
       return 'Coinbase';
     case 'kraken':
       return 'Kraken';
+    case 'robinhood':
+      return 'Robinhood';
     case 'csv':
       return 'Generic';
     default:
@@ -245,6 +251,54 @@ async function syncKraken(
     eventCount: result.events.length,
     inserted: insertResult.inserted,
     skipped: insertResult.skipped,
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Robinhood CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncRobinhood(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('Robinhood sync requires --file <path-to-csv>');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'robinhood')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Robinhood account configured. Add one with `daybook account add <id> --source robinhood --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'robinhood') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not robinhood.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = robinhood.parseRobinhoodCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Robinhood',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
     ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
     dbCounts,
   });

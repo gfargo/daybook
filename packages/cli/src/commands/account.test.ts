@@ -12,6 +12,7 @@ describe('resolveAccountSource', () => {
     expect(resolveAccountSource('csv')).toBe('csv');
     expect(resolveAccountSource('binance')).toBe('binance');
     expect(resolveAccountSource('binance-us')).toBe('binance-us');
+    expect(resolveAccountSource('robinhood')).toBe('robinhood');
     expect(resolveAccountSource('eth')).toBe('eth');
     expect(resolveAccountSource('polygon')).toBe('polygon');
   });
@@ -21,7 +22,7 @@ describe('resolveAccountSource', () => {
       'Unsupported account source',
     );
     expect(() => resolveAccountSource('base')).toThrow(
-      'Supported sources: coinbase, kraken, csv, binance, binance-us, eth, polygon',
+      'Supported sources: coinbase, kraken, csv, binance, binance-us, robinhood, eth, polygon',
     );
   });
 });
