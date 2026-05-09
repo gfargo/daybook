@@ -151,6 +151,75 @@ describe('syncCommand Binance CSV', () => {
   });
 });
 
+describe('syncCommand Crypto.com CSV', () => {
+  it('imports Crypto.com CSV rows into the configured Crypto.com account', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-crypto-com-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+    const csvPath = join(dir, 'crypto-com.csv');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-crypto-com', source: 'crypto-com', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-crypto-com',
+      source: 'crypto-com',
+      identifier: 'user@example.com',
+    });
+    db.close();
+
+    writeFileSync(csvPath, [
+      'Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash',
+      '2024-01-01 00:00:00,Buy BTC,BTC,0.01,USD,-420,USD,420,420,crypto_purchase,',
+    ].join('\n'), 'utf-8');
+
+    await syncCommand({ source: 'crypto-com', file: csvPath, config: configPath });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const events = verifyRepo.getRawEvents({ source: 'crypto-com', limit: 10 });
+    verifyDb.close();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe('trade');
+    expect(events[0]!.legs).toEqual([
+      { asset: 'BTC', amount: '0.01' },
+      { asset: 'USD', amount: '-420' },
+    ]);
+
+    expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'Crypto.com',
+      accountId: 'main-crypto-com',
+      totalRows: 1,
+      eventCount: 1,
+      inserted: 1,
+      skipped: 0,
+    }));
+  });
+
+  it('rejects --from for Crypto.com CSV imports', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-crypto-com-'));
+    const configPath = join(dir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      dbPath: join(dir, 'data.db'),
+      accounts: [],
+    }), 'utf-8');
+
+    await expect(syncCommand({
+      source: 'crypto-com',
+      file: join(dir, 'ledger.csv'),
+      config: configPath,
+      from: '2024-01-01',
+    })).rejects.toThrow('`--from` is not supported for Crypto.com CSV imports');
+  });
+});
+
 describe('syncCommand Gemini CSV', () => {
   it('imports Gemini CSV rows into the configured Gemini account', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-gemini-'));

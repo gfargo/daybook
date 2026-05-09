@@ -24,6 +24,7 @@ import { z } from 'zod';
 const SourceIdSchema = z.enum([
   'coinbase',
   'coinbase-advanced',
+  'crypto-com',
   'csv',
   'binance',
   'binance-us',
