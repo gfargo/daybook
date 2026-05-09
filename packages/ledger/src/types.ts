@@ -37,10 +37,11 @@ export type SourceId =
   | 'robinhood'
   | 'eth'
   | 'polygon'
-  // Future:
   | 'arbitrum'
   | 'base'
   | 'optimism'
+  | 'bnb'
+  // Future:
   | 'solana'
   | 'bitcoin';
 

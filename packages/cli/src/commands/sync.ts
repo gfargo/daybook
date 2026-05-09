@@ -8,7 +8,7 @@
  *   --source kraken --file <path>     CSV import
  *   --source robinhood --file <path>  CSV import
  *   --source csv --file <path>        Generic CSV import
- *   --source eth|polygon              EVM sync via Alchemy
+ *   --source eth|polygon|base|...     EVM sync via Alchemy
  */
 
 import { readFileSync } from 'node:fs';
@@ -68,6 +68,10 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
         break;
       case 'eth':
       case 'polygon':
+      case 'arbitrum':
+      case 'base':
+      case 'optimism':
+      case 'bnb':
         await syncEvm(opts, config, repo);
         break;
       default:

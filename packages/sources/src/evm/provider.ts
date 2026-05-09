@@ -30,6 +30,7 @@ import type { SourceId } from '@daybook/ledger';
  *   42161 = Arbitrum One
  *   10    = Optimism
  *   8453  = Base
+ *   56    = BNB Smart Chain
  */
 export type ChainId = number;
 
@@ -37,12 +38,20 @@ export type ChainId = number;
 export const CHAIN_ID_BY_SOURCE: Record<string, ChainId> = {
   eth: 1,
   polygon: 137,
+  arbitrum: 42161,
+  optimism: 10,
+  base: 8453,
+  bnb: 56,
 } as const;
 
 /** Reverse map: chain ID → daybook source ID. */
 export const SOURCE_BY_CHAIN_ID: Record<ChainId, SourceId> = {
   1: 'eth',
   137: 'polygon',
+  42161: 'arbitrum',
+  10: 'optimism',
+  8453: 'base',
+  56: 'bnb',
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────

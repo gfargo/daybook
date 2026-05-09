@@ -29,6 +29,7 @@ vi.mock('alchemy-sdk', () => ({
     ARB_MAINNET: 'arbitrum-mainnet',
     OPT_MAINNET: 'optimism-mainnet',
     BASE_MAINNET: 'base-mainnet',
+    BNB_MAINNET: 'bnb-mainnet',
   },
 }));
 
@@ -172,5 +173,28 @@ describe('AlchemyTransferProvider', () => {
     expect(missOne).toBeNull();
     expect(missTwo).toBeNull();
     expect(mocks.getTokenMetadata).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [42161, 'arbitrum-mainnet'],
+    [10, 'optimism-mainnet'],
+    [8453, 'base-mainnet'],
+    [56, 'bnb-mainnet'],
+  ] as const)('supports chainId %i through Alchemy network %s', async (chainId, network) => {
+    const { AlchemyTransferProvider } = await import('./alchemy.js');
+    mocks.getAssetTransfers.mockResolvedValue({ transfers: [] });
+
+    const provider = new AlchemyTransferProvider('test-key');
+    for await (const _transfer of provider.fetchTransfers({
+      address: '0xUser',
+      chainId,
+    })) {
+      // Empty mock response; this loop only forces client creation.
+    }
+
+    expect(mocks.alchemyConstructor).toHaveBeenCalledWith({
+      apiKey: 'test-key',
+      network,
+    });
   });
 });

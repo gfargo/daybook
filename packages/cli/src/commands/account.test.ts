@@ -15,14 +15,18 @@ describe('resolveAccountSource', () => {
     expect(resolveAccountSource('robinhood')).toBe('robinhood');
     expect(resolveAccountSource('eth')).toBe('eth');
     expect(resolveAccountSource('polygon')).toBe('polygon');
+    expect(resolveAccountSource('arbitrum')).toBe('arbitrum');
+    expect(resolveAccountSource('base')).toBe('base');
+    expect(resolveAccountSource('optimism')).toBe('optimism');
+    expect(resolveAccountSource('bnb')).toBe('bnb');
   });
 
   it('rejects future sources that the sync command cannot handle yet', () => {
     expect(() => resolveAccountSource('coinbase-advanced')).toThrow(
       'Unsupported account source',
     );
-    expect(() => resolveAccountSource('base')).toThrow(
-      'Supported sources: coinbase, kraken, csv, binance, binance-us, robinhood, eth, polygon',
+    expect(() => resolveAccountSource('solana')).toThrow(
+      'Supported sources: coinbase, kraken, csv, binance, binance-us, robinhood, eth, polygon, arbitrum, base, optimism, bnb',
     );
   });
 });

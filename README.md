@@ -2,11 +2,11 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 471 tests passing locally.
+**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 485 tests passing locally.
 
 ## What it does
 
-Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -94,6 +94,11 @@ daybook account add polygon-main \
   --source polygon \
   --identifier 0xYourAddress \
   --label "Main Polygon"
+
+daybook account add base-main \
+  --source base \
+  --identifier 0xYourAddress \
+  --label "Main Base"
 ```
 
 ### 2. Sync data
@@ -118,12 +123,17 @@ daybook sync --source csv --file ~/Downloads/universal-ledger.csv
 # Sync EVM wallets (requires ALCHEMY_API_KEY env var)
 daybook sync --source eth
 daybook sync --source polygon
+daybook sync --source base
+daybook sync --source arbitrum
+daybook sync --source optimism
+daybook sync --source bnb
 
 # Incremental sync from a specific date or block
 daybook sync --source eth --from 2024-01-01
 daybook sync --source eth --from 19000000
 
-# Include gas from failed transactions (requires ETHERSCAN_API_KEY env var)
+# Include gas from failed transactions on supported Etherscan-compatible sources
+# (requires ETHERSCAN_API_KEY env var)
 daybook sync --source eth --include-failed-gas
 ```
 
@@ -232,10 +242,10 @@ See [GitHub Releases](https://github.com/gfargo/daybook/releases) for version hi
 
 ## Testing
 
-471 tests across 32 test files. Run with:
+485 tests across 33 test files. Run with:
 
 ```bash
 pnpm test
 ```
 
-Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, stablecoin lot accounting, exchange CSV adapters, Alchemy and Etherscan providers, CoinGecko pricing, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).
+Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, stablecoin lot accounting, exchange CSV adapters, Alchemy and Etherscan providers, EVM source mappings, CoinGecko pricing, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).

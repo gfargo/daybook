@@ -24,7 +24,7 @@ import {
 } from './commands/overrides.js';
 
 const program = new Command();
-const SOURCE_HELP = 'source type: coinbase, kraken, csv, binance, binance-us, robinhood, eth, polygon';
+const SOURCE_HELP = 'source type: coinbase, kraken, csv, binance, binance-us, robinhood, eth, polygon, arbitrum, base, optimism, bnb';
 
 program
   .name('daybook')
@@ -62,6 +62,7 @@ Examples:
   daybook account add main-binance --source binance --identifier you@example.com
   daybook account add main-robinhood --source robinhood --identifier you@example.com
   daybook account add csv-imports --source csv --identifier manual-ledger
+  daybook account add base-main --source base --identifier 0xYourAddress --label "Main Base"
   daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"`)
   .action(accountAddCommand);
 
@@ -92,6 +93,7 @@ Examples:
   daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
   daybook sync --source csv --file ~/Downloads/universal-ledger.csv
   daybook sync --source eth
+  daybook sync --source base
   daybook sync --source eth --from 2024-01-01
   daybook sync --source eth --include-failed-gas`)
   .action(syncCommand);

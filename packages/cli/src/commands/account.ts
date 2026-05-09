@@ -12,7 +12,20 @@ import { createRepo, openDatabase } from '@daybook/ledger';
 import { type Config, expandPath, loadConfig, saveConfig } from '../config.js';
 import { writeJson } from '../ui/index.js';
 
-const SUPPORTED_ACCOUNT_SOURCES = ['coinbase', 'kraken', 'csv', 'binance', 'binance-us', 'robinhood', 'eth', 'polygon'] as const;
+const SUPPORTED_ACCOUNT_SOURCES = [
+  'coinbase',
+  'kraken',
+  'csv',
+  'binance',
+  'binance-us',
+  'robinhood',
+  'eth',
+  'polygon',
+  'arbitrum',
+  'base',
+  'optimism',
+  'bnb',
+] as const;
 type SupportedAccountSource = typeof SUPPORTED_ACCOUNT_SOURCES[number];
 
 export interface AccountAddOptions {
