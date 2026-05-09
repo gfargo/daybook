@@ -20,6 +20,10 @@
       "types": "./dist/coinbase/index.d.ts",
       "import": "./dist/coinbase/index.js"
     },
+    "./crypto-com": {
+      "types": "./dist/crypto-com/index.d.ts",
+      "import": "./dist/crypto-com/index.js"
+    },
     "./evm": {
       "types": "./dist/evm/index.d.ts",
       "import": "./dist/evm/index.js"
@@ -42,7 +46,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/binance/index.ts src/coinbase/index.ts src/evm/index.ts src/gemini/index.ts src/generic-csv/index.ts src/kraken/index.ts src/robinhood/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
+    "build": "tsup src/index.ts src/binance/index.ts src/coinbase/index.ts src/crypto-com/index.ts src/evm/index.ts src/gemini/index.ts src/generic-csv/index.ts src/kraken/index.ts src/robinhood/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
     "test": "vitest run"
   },
   "dependencies": {

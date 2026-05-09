@@ -5,6 +5,7 @@
  *   --source binance --file <path>    CSV import
  *   --source binance-us --file <path> CSV import
  *   --source coinbase --file <path>   CSV import
+ *   --source crypto-com --file <path> CSV import
  *   --source gemini --file <path>     CSV import
  *   --source kraken --file <path>     CSV import
  *   --source robinhood --file <path>  CSV import
@@ -15,7 +16,7 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { binance, coinbase, gemini, genericCsv, kraken, robinhood } from '@daybook/sources';
+import { binance, coinbase, cryptoCom, gemini, genericCsv, kraken, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
 import {
     AlchemyTransferProvider,
@@ -58,6 +59,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'coinbase':
         await syncCoinbase(opts, config, repo);
         break;
+      case 'crypto-com':
+        await syncCryptoCom(opts, config, repo);
+        break;
       case 'gemini':
         await syncGemini(opts, config, repo);
         break;
@@ -87,7 +91,7 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 function isCsvImportSource(source: string): boolean {
-  return ['binance', 'binance-us', 'coinbase', 'gemini', 'kraken', 'robinhood', 'csv'].includes(source);
+  return ['binance', 'binance-us', 'coinbase', 'crypto-com', 'gemini', 'kraken', 'robinhood', 'csv'].includes(source);
 }
 
 function formatCsvSourceName(source: string): string {
@@ -98,6 +102,8 @@ function formatCsvSourceName(source: string): string {
       return 'Binance.US';
     case 'coinbase':
       return 'Coinbase';
+    case 'crypto-com':
+      return 'Crypto.com';
     case 'gemini':
       return 'Gemini';
     case 'kraken':
@@ -210,6 +216,54 @@ async function syncCoinbase(
     skipped: insertResult.skipped,
     ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Crypto.com CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncCryptoCom(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('Crypto.com sync requires --file <path-to-csv>');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'crypto-com')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Crypto.com account configured. Add one with `daybook account add <id> --source crypto-com --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'crypto-com') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not crypto-com.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = cryptoCom.parseCryptoComCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Crypto.com',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
     dbCounts,
   });
 }

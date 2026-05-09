@@ -24,7 +24,7 @@ import {
 } from './commands/overrides.js';
 
 const program = new Command();
-const SOURCE_HELP = 'source type: coinbase, kraken, csv, binance, binance-us, gemini, robinhood, eth, polygon, arbitrum, base, optimism, bnb';
+const SOURCE_HELP = 'source type: coinbase, kraken, crypto-com, csv, binance, binance-us, gemini, robinhood, eth, polygon, arbitrum, base, optimism, bnb';
 
 program
   .name('daybook')
@@ -60,6 +60,7 @@ account
 Examples:
   daybook account add main-coinbase --source coinbase --identifier you@example.com
   daybook account add main-binance --source binance --identifier you@example.com
+  daybook account add main-crypto-com --source crypto-com --identifier you@example.com
   daybook account add main-gemini --source gemini --identifier you@example.com
   daybook account add main-robinhood --source robinhood --identifier you@example.com
   daybook account add csv-imports --source csv --identifier manual-ledger
@@ -80,7 +81,7 @@ program
   .command('sync')
   .description('Pull new events from a source and persist them')
   .requiredOption('--source <id>', SOURCE_HELP)
-  .option('--file <path>', 'CSV file path (required for coinbase, kraken, csv, binance, binance-us, gemini, robinhood)')
+  .option('--file <path>', 'CSV file path (required for coinbase, kraken, crypto-com, csv, binance, binance-us, gemini, robinhood)')
   .option('--account <id>', 'target account (defaults to first matching source)')
   .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
   .option('--from <date|block>', 'sync from this date (ISO 8601) or block number (EVM only)')
@@ -89,6 +90,7 @@ program
 Examples:
   daybook sync --source binance --file ~/Downloads/binance-ledger.csv
   daybook sync --source binance-us --file ~/Downloads/binance-us-tax.csv
+  daybook sync --source crypto-com --file ~/Downloads/crypto-com-transactions.csv
   daybook sync --source gemini --file ~/Downloads/gemini-transactions.csv
   daybook sync --source robinhood --file ~/Downloads/robinhood-crypto.csv
   daybook sync --source coinbase --file ~/Downloads/Coinbase.csv

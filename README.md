@@ -2,11 +2,11 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 492 tests passing locally.
+**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 499 tests passing locally.
 
 ## What it does
 
-Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, Gemini CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Binance CSV, Binance.US CSV, Coinbase CSV, Gemini CSV, Kraken CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Binance CSV, Binance.US CSV, Coinbase CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -72,6 +72,12 @@ daybook account add main-binance-us \
   --identifier you@example.com \
   --label "My Binance.US"
 
+# Add your Crypto.com account
+daybook account add main-crypto-com \
+  --source crypto-com \
+  --identifier you@example.com \
+  --label "My Crypto.com"
+
 # Add your Gemini account
 daybook account add main-gemini \
   --source gemini \
@@ -119,6 +125,9 @@ daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
 # Import Binance / Binance.US CSV
 daybook sync --source binance --file ~/Downloads/binance-ledger.csv
 daybook sync --source binance-us --file ~/Downloads/binance-us-tax.csv
+
+# Import Crypto.com App / Exchange / DeFi Wallet CSV
+daybook sync --source crypto-com --file ~/Downloads/crypto-com-transactions.csv
 
 # Import Gemini CSV converted from Exchange Transaction History XLSX
 daybook sync --source gemini --file ~/Downloads/gemini-transactions.csv
@@ -234,6 +243,28 @@ Date,Time (UTC),Type,Symbol,Specification,BTC Amount BTC,Fee (BTC) BTC,USD Amoun
 
 Buys, sells, deposits, withdrawals, fees, and reward/credit rows are normalized when the row has enough asset movement data. Ambiguous rows are skipped with warnings.
 
+### Crypto.com CSV formats
+
+`--source crypto-com` accepts Crypto.com App transaction-history exports with columns such as:
+
+```csv
+Timestamp (UTC),Transaction Description,Currency,Amount,To Currency,To Amount,Native Currency,Native Amount,Native Amount (in USD),Transaction Kind,Transaction Hash
+```
+
+It also accepts Crypto.com Exchange trade exports with:
+
+```csv
+Order ID,Trade ID,Time (UTC),Symbol,Side,Trade Price,Trade Amount,Volume of Business,Fee,Fee Currency
+```
+
+DeFi Wallet-style exports with sent/received/fee columns are also supported:
+
+```csv
+Date,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount,Fee Currency,Label,Description,TxHash
+```
+
+Trades, deposits, withdrawals, card spend, card cashback, rewards, and fees are normalized when enough asset movement data is present. Ambiguous rows are skipped with warnings.
+
 ### Robinhood CSV formats
 
 `--source robinhood` accepts Robinhood Crypto transaction-history style exports with columns such as:
@@ -267,7 +298,7 @@ See [GitHub Releases](https://github.com/gfargo/daybook/releases) for version hi
 
 ## Testing
 
-492 tests across 34 test files. Run with:
+499 tests across 35 test files. Run with:
 
 ```bash
 pnpm test

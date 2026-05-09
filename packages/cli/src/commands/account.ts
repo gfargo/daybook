@@ -15,6 +15,7 @@ import { writeJson } from '../ui/index.js';
 const SUPPORTED_ACCOUNT_SOURCES = [
   'coinbase',
   'kraken',
+  'crypto-com',
   'csv',
   'binance',
   'binance-us',

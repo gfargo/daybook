@@ -30,6 +30,7 @@ import type Decimal from 'decimal.js';
 export type SourceId =
   | 'coinbase'
   | 'coinbase-advanced'
+  | 'crypto-com'
   | 'csv'
   | 'binance'
   | 'binance-us'
