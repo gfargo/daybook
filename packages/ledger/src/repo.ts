@@ -62,6 +62,21 @@ export interface CountByType {
   count: number;
 }
 
+export interface SyncState {
+  source: SourceId;
+  accountId: string;
+  cursor?: string;
+  lastSyncedAt?: number;
+  updatedAt: number;
+}
+
+export interface UpsertSyncStateInput {
+  source: SourceId;
+  accountId: string;
+  cursor?: string | null;
+  lastSyncedAt?: number | null;
+}
+
 export interface LedgerEntryFilter {
   /** Filter by year (e.g. 2024 → entries with timestamp in 2024). */
   year?: number;
@@ -84,6 +99,10 @@ export interface Repo {
   getRawEvents(filter: RawEventFilter): RawEvent[];
   countByType(filter: Omit<RawEventFilter, 'limit' | 'offset'>): CountByType[];
   countTotal(filter: Omit<RawEventFilter, 'limit' | 'offset'>): number;
+
+  // ─── Source sync state ──────────────────────────────────────────────
+  getSyncState(source: SourceId, accountId: string): SyncState | null;
+  upsertSyncState(input: UpsertSyncStateInput): void;
 
   // ─── Ledger entries (classifier output, rebuildable) ───────────────
   rebuildLedgerEntries(entries: ReadonlyArray<LedgerEntry>): void;
@@ -123,6 +142,10 @@ class RepoImpl implements Repo {
   private readonly insertLegStmt: Statement;
   private readonly getEventStmt: Statement;
   private readonly getLegsStmt: Statement;
+
+  // Sync state statements
+  private readonly getSyncStateStmt: Statement;
+  private readonly upsertSyncStateStmt: Statement;
 
   // Bound transaction for batch insert
   private readonly insertEventsTxn: (
@@ -177,6 +200,23 @@ class RepoImpl implements Repo {
       FROM raw_event_legs
       WHERE event_id = ?
       ORDER BY leg_index
+    `);
+
+    this.getSyncStateStmt = db.prepare(`
+      SELECT source, account_id, cursor, last_synced_at, updated_at
+      FROM sync_state
+      WHERE source = ? AND account_id = ?
+    `);
+
+    this.upsertSyncStateStmt = db.prepare(`
+      INSERT INTO sync_state
+        (source, account_id, cursor, last_synced_at, updated_at)
+      VALUES
+        (@source, @accountId, @cursor, @lastSyncedAt, @updatedAt)
+      ON CONFLICT(source, account_id) DO UPDATE SET
+        cursor = excluded.cursor,
+        last_synced_at = excluded.last_synced_at,
+        updated_at = excluded.updated_at
     `);
 
     // Batched insert as a single transaction. better-sqlite3's `transaction()`
@@ -281,6 +321,25 @@ class RepoImpl implements Repo {
       | { count: number }
       | undefined;
     return row?.count ?? 0;
+  }
+
+  // ─── Source sync state ───────────────────────────────────────────────
+
+  getSyncState(source: SourceId, accountId: string): SyncState | null {
+    const row = this.getSyncStateStmt.get(source, accountId) as
+      | SyncStateRow
+      | undefined;
+    return row ? rowToSyncState(row) : null;
+  }
+
+  upsertSyncState(input: UpsertSyncStateInput): void {
+    this.upsertSyncStateStmt.run({
+      source: input.source,
+      accountId: input.accountId,
+      cursor: input.cursor ?? null,
+      lastSyncedAt: input.lastSyncedAt ?? null,
+      updatedAt: Math.floor(Date.now() / 1000),
+    });
   }
 
   // ─── Ledger entries ──────────────────────────────────────────────────
@@ -578,6 +637,14 @@ interface RawLegRow {
   token_id: string | null;
 }
 
+interface SyncStateRow {
+  source: string;
+  account_id: string;
+  cursor: string | null;
+  last_synced_at: number | null;
+  updated_at: number;
+}
+
 interface LedgerEntryRow {
   id: string;
   timestamp: number;
@@ -635,6 +702,16 @@ function rowToEvent(row: RawEventRow, legRows: RawLegRow[]): RawEvent {
     ...(row.counterparty ? { counterparty: row.counterparty } : {}),
     ...(row.notes ? { notes: row.notes } : {}),
     raw: JSON.parse(row.raw_json),
+  };
+}
+
+function rowToSyncState(row: SyncStateRow): SyncState {
+  return {
+    source: row.source as SourceId,
+    accountId: row.account_id,
+    ...(row.cursor ? { cursor: row.cursor } : {}),
+    ...(row.last_synced_at !== null ? { lastSyncedAt: row.last_synced_at } : {}),
+    updatedAt: row.updated_at,
   };
 }
 

@@ -5,7 +5,7 @@
 ```text
 packages/
   ledger/       Core RawEvent/LedgerEntry types, migrations, repository
-  sources/      Coinbase, Kraken, Binance, Binance.US, generic CSV, EVM adapters
+  sources/      Coinbase API/CSV, Kraken, Binance, Binance.US, generic CSV, EVM adapters
   classifier/   Rule chain and manual override application
   tax/          Pricing, lot books, cost basis, forms, TXF, CSV export
   cli/          daybook commands and terminal UI
@@ -25,7 +25,7 @@ Each adapter should live under:
 ```text
 packages/sources/src/<source>/
   index.ts
-  csv.ts or adapter.ts
+  csv.ts, api.ts, or adapter.ts
   *.test.ts
 ```
 

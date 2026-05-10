@@ -181,3 +181,50 @@ describe('raw events — read', () => {
     expect(result.map(e => e.id)).toEqual(['new']);
   });
 });
+
+// ─── Source sync state ─────────────────────────────────────────────────
+
+describe('source sync state', () => {
+  beforeEach(() => repo.upsertAccount(fixtureAccount()));
+
+  it('returns null for missing sync state', () => {
+    expect(repo.getSyncState('coinbase', 'main-coinbase')).toBeNull();
+  });
+
+  it('upserts and retrieves sync state', () => {
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      cursor: 'cursor-1',
+      lastSyncedAt: 1_718_400_000,
+    });
+
+    expect(repo.getSyncState('coinbase', 'main-coinbase')).toEqual({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      cursor: 'cursor-1',
+      lastSyncedAt: 1_718_400_000,
+      updatedAt: expect.any(Number),
+    });
+  });
+
+  it('replaces existing sync state for the same source and account', () => {
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      cursor: 'old',
+      lastSyncedAt: 1,
+    });
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      cursor: 'new',
+      lastSyncedAt: 2,
+    });
+
+    expect(repo.getSyncState('coinbase', 'main-coinbase')).toMatchObject({
+      cursor: 'new',
+      lastSyncedAt: 2,
+    });
+  });
+});

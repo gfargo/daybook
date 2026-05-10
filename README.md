@@ -2,11 +2,11 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation and NFT cost-basis tracking. All packages are implemented, with 499 tests passing locally.
+**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation, NFT cost-basis tracking, and Coinbase API sync. All packages are implemented, with 517 tests passing locally.
 
 ## What it does
 
-Pulls transactions from your Coinbase account, Kraken account, Binance/Binance.US CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Binance CSV, Binance.US CSV, Coinbase CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -116,7 +116,13 @@ daybook account add base-main \
 ### 2. Sync data
 
 ```bash
-# Import Coinbase CSV
+# Sync Coinbase via API (requires Coinbase CDP API key env vars)
+export COINBASE_CDP_KEY_NAME="organizations/<org-id>/apiKeys/<key-id>"
+export COINBASE_CDP_PRIVATE_KEY="-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----\n"
+daybook sync --source coinbase
+daybook sync --source coinbase --from 2024-01-01
+
+# Or import Coinbase CSV
 daybook sync --source coinbase --file ~/Downloads/Coinbase-All-Transactions.csv
 
 # Import Kraken CSV
@@ -200,6 +206,21 @@ daybook overrides remove <id>
 ```
 
 All syncs are idempotent — running them twice with the same data is a no-op.
+
+### Coinbase API sync
+
+`--source coinbase` without `--file` uses Coinbase App Track APIs for accounts and transactions, then enriches Advanced Trade activity with the Advanced Trade fills endpoint. Coinbase CDP keys must use the ECDSA/ES256 key type.
+
+Required environment variables:
+
+```bash
+export COINBASE_CDP_KEY_NAME="organizations/<org-id>/apiKeys/<key-id>"
+export COINBASE_CDP_PRIVATE_KEY="-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----\n"
+```
+
+`COINBASE_CDP_KEY_SECRET` is accepted as an alias for `COINBASE_CDP_PRIVATE_KEY`. After a successful API sync, daybook stores a per-account sync watermark and uses it automatically on the next run. Use `--from YYYY-MM-DD` to override the starting point.
+
+CSV import remains available with `--file` and does not use API credentials.
 
 ### Generic CSV format
 
@@ -298,10 +319,10 @@ See [GitHub Releases](https://github.com/gfargo/daybook/releases) for version hi
 
 ## Testing
 
-499 tests across 35 test files. Run with:
+517 tests across 40 test files. Run with:
 
 ```bash
 pnpm test
 ```
 
-Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, stablecoin lot accounting, exchange CSV adapters, Alchemy and Etherscan providers, EVM source mappings, CoinGecko pricing, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).
+Coverage includes unit tests per module, property-based tests for lot conservation, decimal precision, NFT classification correctness, NFT lot round-trips, holding period classification, and identifier formatting. Also covers wash sale logic, Specific ID strategy, stablecoin lot accounting, exchange CSV adapters, Coinbase API auth/client/mapping, sync-state persistence, Alchemy and Etherscan providers, EVM source mappings, CoinGecko pricing, block resolver, and an end-to-end integration test (sync → classify → export → verify CSV).

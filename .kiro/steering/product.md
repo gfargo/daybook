@@ -9,9 +9,11 @@ daybook is a self-hosted crypto wallet auditing and tax reporting CLI for users 
 - Compute cost basis with FIFO, HIFO, LIFO, and Specific ID.
 - Export tax-ready CSV, Form 8949 PDF, Schedule D PDF, and TXF.
 - Keep USD fiat distinct from crypto-denominated stablecoins such as USDC and USDT.
+- Support Coinbase as both a file import source and a live API sync source.
 
 ## Supported Ingestion
 
+- Coinbase API
 - Coinbase CSV
 - Kraken CSV
 - Binance CSV
