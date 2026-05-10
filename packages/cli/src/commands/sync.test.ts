@@ -1,15 +1,27 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RawEvent } from '@daybook/ledger';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import { syncCommand } from './sync.js';
 import { renderCsvSyncOutput } from './SyncOutput.js';
+
+const syncCoinbaseApiMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@daybook/sources/coinbase', () => ({
+  syncCoinbaseApi: syncCoinbaseApiMock,
+}));
 
 vi.mock('./SyncOutput.js', () => ({
   renderCsvSyncOutput: vi.fn(),
   renderEvmSyncOutput: vi.fn(),
 }));
+
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe('syncCommand generic CSV', () => {
   it('imports generic CSV rows into the configured CSV account', async () => {
@@ -150,6 +162,131 @@ describe('syncCommand Binance CSV', () => {
     })).rejects.toThrow('`--from` is not supported for Binance.US CSV imports');
   });
 });
+
+describe('syncCommand Coinbase API', () => {
+  it('syncs Coinbase API events into the configured Coinbase account', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    db.close();
+
+    syncCoinbaseApiMock.mockResolvedValue({
+      events: [coinbaseApiEvent()],
+      totalRows: 1,
+      countsByType: { trade: 1 },
+      unparsedRowCount: 0,
+      warnings: [],
+      fetched: { accounts: 1, transactions: 1, fills: 1 },
+    });
+    vi.stubEnv('COINBASE_CDP_KEY_NAME', 'organizations/org/apiKeys/key');
+    vi.stubEnv('COINBASE_CDP_PRIVATE_KEY', 'test-private-key');
+
+    await syncCommand({
+      source: 'coinbase',
+      config: configPath,
+      from: '2024-01-01',
+    });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const events = verifyRepo.getRawEvents({ source: 'coinbase', limit: 10 });
+    const syncState = verifyRepo.getSyncState('coinbase', 'main-coinbase');
+    verifyDb.close();
+
+    expect(syncCoinbaseApiMock).toHaveBeenCalledWith({
+      accountId: 'main-coinbase',
+      credentials: {
+        keyName: 'organizations/org/apiKeys/key',
+        privateKey: 'test-private-key',
+      },
+      from: new Date('2024-01-01'),
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.id).toBe('coinbase:api:v3:fill:fill-1');
+    expect(syncState?.lastSyncedAt).toBe(1_704_067_200);
+    expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'Coinbase API',
+      accountId: 'main-coinbase',
+      totalRows: 1,
+      eventCount: 1,
+      inserted: 1,
+      skipped: 0,
+    }));
+  });
+
+  it('requires Coinbase CDP credentials for API sync', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    db.close();
+
+    await expect(syncCommand({
+      source: 'coinbase',
+      config: configPath,
+    })).rejects.toThrow('COINBASE_CDP_KEY_NAME and COINBASE_CDP_PRIVATE_KEY');
+  });
+
+  it('keeps --from rejected for Coinbase CSV imports', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-csv-'));
+    const configPath = join(dir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      dbPath: join(dir, 'data.db'),
+      accounts: [],
+    }), 'utf-8');
+
+    await expect(syncCommand({
+      source: 'coinbase',
+      file: join(dir, 'Coinbase.csv'),
+      config: configPath,
+      from: '2024-01-01',
+    })).rejects.toThrow('`--from` is not supported for Coinbase CSV imports');
+  });
+});
+
+function coinbaseApiEvent(): RawEvent {
+  return {
+    id: 'coinbase:api:v3:fill:fill-1',
+    source: 'coinbase',
+    accountId: 'main-coinbase',
+    timestamp: new Date('2024-01-01T00:00:00Z'),
+    type: 'trade',
+    legs: [
+      { asset: 'BTC', amount: '0.01' },
+      { asset: 'USD', amount: '-420' },
+    ],
+    raw: { fill: { entry_id: 'fill-1' } },
+  };
+}
 
 describe('syncCommand Crypto.com CSV', () => {
   it('imports Crypto.com CSV rows into the configured Crypto.com account', async () => {

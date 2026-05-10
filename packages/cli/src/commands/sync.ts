@@ -4,6 +4,7 @@
  * v1 supports:
  *   --source binance --file <path>    CSV import
  *   --source binance-us --file <path> CSV import
+ *   --source coinbase                 Coinbase API sync
  *   --source coinbase --file <path>   CSV import
  *   --source crypto-com --file <path> CSV import
  *   --source gemini --file <path>     CSV import
@@ -18,6 +19,7 @@ import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
 import { binance, coinbase, cryptoCom, gemini, genericCsv, kraken, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
+import { syncCoinbaseApi as syncCoinbaseApiSource } from '@daybook/sources/coinbase';
 import {
     AlchemyTransferProvider,
     CHAIN_ID_BY_SOURCE,
@@ -44,8 +46,8 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
   const repo = createRepo(db.raw);
 
   try {
-    // Guard: --from is only supported for EVM sources.
-    if (opts.from && isCsvImportSource(opts.source)) {
+    // Guard: --from is only supported for API-backed syncs.
+    if (opts.from && isCsvOnlySync(opts)) {
       throw new Error(
         `\`--from\` is not supported for ${formatCsvSourceName(opts.source)} CSV imports. Filter by date after import.`,
       );
@@ -92,6 +94,10 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 
 function isCsvImportSource(source: string): boolean {
   return ['binance', 'binance-us', 'coinbase', 'crypto-com', 'gemini', 'kraken', 'robinhood', 'csv'].includes(source);
+}
+
+function isCsvOnlySync(opts: SyncOptions): boolean {
+  return isCsvImportSource(opts.source) && !(opts.source === 'coinbase' && !opts.file);
 }
 
 function formatCsvSourceName(source: string): string {
@@ -172,10 +178,6 @@ async function syncCoinbase(
   config: ReturnType<typeof loadConfig>,
   repo: ReturnType<typeof createRepo>,
 ): Promise<void> {
-  if (!opts.file) {
-    throw new Error('Coinbase sync requires --file <path-to-csv>');
-  }
-
   // Resolve account: explicit --account, or the first coinbase account in config.
   const accountId = opts.account
     ?? config.accounts.find(a => a.source === 'coinbase')?.id;
@@ -192,6 +194,11 @@ async function syncCoinbase(
     throw new Error(
       `Account "${accountId}" is on source "${account.source}", not coinbase.`,
     );
+  }
+
+  if (!opts.file) {
+    await syncCoinbaseApi(opts, repo, accountId);
+    return;
   }
 
   // Parse CSV
@@ -218,6 +225,74 @@ async function syncCoinbase(
     ...(warnings.length > 0 ? { warnings } : {}),
     dbCounts,
   });
+}
+
+async function syncCoinbaseApi(
+  opts: SyncOptions,
+  repo: ReturnType<typeof createRepo>,
+  accountId: string,
+): Promise<void> {
+  const keyName = process.env['COINBASE_CDP_KEY_NAME'];
+  const privateKey = process.env['COINBASE_CDP_PRIVATE_KEY']
+    ?? process.env['COINBASE_CDP_KEY_SECRET'];
+  if (!keyName || !privateKey) {
+    throw new Error(
+      'COINBASE_CDP_KEY_NAME and COINBASE_CDP_PRIVATE_KEY environment variables are required for Coinbase API sync.',
+    );
+  }
+
+  const from = resolveCoinbaseApiFrom(opts, repo, accountId);
+  const result = await syncCoinbaseApiSource({
+    accountId,
+    credentials: { keyName, privateKey },
+    ...(from ? { from } : {}),
+  });
+
+  const insertResult = repo.insertRawEvents(result.events);
+  const lastSyncedAt = latestEventTimestamp(result.events)
+    ?? Math.floor(Date.now() / 1000);
+  repo.upsertSyncState({
+    source: 'coinbase',
+    accountId,
+    lastSyncedAt,
+  });
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Coinbase API',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
+}
+
+function resolveCoinbaseApiFrom(
+  opts: SyncOptions,
+  repo: ReturnType<typeof createRepo>,
+  accountId: string,
+): Date | undefined {
+  if (opts.from) {
+    const parsed = new Date(opts.from);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(`Invalid --from date for Coinbase API sync: ${opts.from}`);
+    }
+    return parsed;
+  }
+
+  const state = repo.getSyncState('coinbase', accountId);
+  return state?.lastSyncedAt
+    ? new Date(state.lastSyncedAt * 1000)
+    : undefined;
+}
+
+function latestEventTimestamp(events: ReadonlyArray<{ timestamp: Date }>): number | undefined {
+  if (events.length === 0) return undefined;
+  return Math.max(...events.map(event => Math.floor(event.timestamp.getTime() / 1000)));
 }
 
 // ─────────────────────────────────────────────────────────────────────────

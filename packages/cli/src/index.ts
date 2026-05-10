@@ -81,10 +81,10 @@ program
   .command('sync')
   .description('Pull new events from a source and persist them')
   .requiredOption('--source <id>', SOURCE_HELP)
-  .option('--file <path>', 'CSV file path (required for coinbase, kraken, crypto-com, csv, binance, binance-us, gemini, robinhood)')
+  .option('--file <path>', 'CSV file path (required for kraken, crypto-com, csv, binance, binance-us, gemini, robinhood; optional for coinbase CSV import)')
   .option('--account <id>', 'target account (defaults to first matching source)')
   .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
-  .option('--from <date|block>', 'sync from this date (ISO 8601) or block number (EVM only)')
+  .option('--from <date|block>', 'sync from this date (Coinbase API) or date/block number (EVM)')
   .option('--config <path>', 'config file path')
   .addHelpText('after', `
 Examples:
@@ -93,11 +93,13 @@ Examples:
   daybook sync --source crypto-com --file ~/Downloads/crypto-com-transactions.csv
   daybook sync --source gemini --file ~/Downloads/gemini-transactions.csv
   daybook sync --source robinhood --file ~/Downloads/robinhood-crypto.csv
+  daybook sync --source coinbase
   daybook sync --source coinbase --file ~/Downloads/Coinbase.csv
   daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv
   daybook sync --source csv --file ~/Downloads/universal-ledger.csv
   daybook sync --source eth
   daybook sync --source base
+  daybook sync --source coinbase --from 2024-01-01
   daybook sync --source eth --from 2024-01-01
   daybook sync --source eth --include-failed-gas`)
   .action(syncCommand);
