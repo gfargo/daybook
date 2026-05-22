@@ -36,6 +36,7 @@ export type SourceId =
   | 'binance-us'
   | 'gemini'
   | 'kraken'  // v1.1
+  | 'okx'
   | 'robinhood'
   | 'eth'
   | 'polygon'

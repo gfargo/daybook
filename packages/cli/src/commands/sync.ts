@@ -9,6 +9,7 @@
  *   --source crypto-com --file <path> CSV import
  *   --source gemini --file <path>     CSV import
  *   --source kraken --file <path>     CSV import
+ *   --source okx --file <path>        CSV import
  *   --source robinhood --file <path>  CSV import
  *   --source csv --file <path>        Generic CSV import
  *   --source eth|polygon|base|...     EVM sync via Alchemy
@@ -17,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { binance, coinbase, cryptoCom, gemini, genericCsv, kraken, robinhood } from '@daybook/sources';
+import { binance, coinbase, cryptoCom, gemini, genericCsv, kraken, okx, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
 import { syncCoinbaseApi as syncCoinbaseApiSource } from '@daybook/sources/coinbase';
 import {
@@ -70,6 +71,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'kraken':
         await syncKraken(opts, config, repo);
         break;
+      case 'okx':
+        await syncOkx(opts, config, repo);
+        break;
       case 'robinhood':
         await syncRobinhood(opts, config, repo);
         break;
@@ -93,7 +97,7 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 function isCsvImportSource(source: string): boolean {
-  return ['binance', 'binance-us', 'coinbase', 'crypto-com', 'gemini', 'kraken', 'robinhood', 'csv'].includes(source);
+  return ['binance', 'binance-us', 'coinbase', 'crypto-com', 'gemini', 'kraken', 'okx', 'robinhood', 'csv'].includes(source);
 }
 
 function isCsvOnlySync(opts: SyncOptions): boolean {
@@ -114,6 +118,8 @@ function formatCsvSourceName(source: string): string {
       return 'Gemini';
     case 'kraken':
       return 'Kraken';
+    case 'okx':
+      return 'OKX';
     case 'robinhood':
       return 'Robinhood';
     case 'csv':
@@ -438,6 +444,54 @@ async function syncKraken(
     eventCount: result.events.length,
     inserted: insertResult.inserted,
     skipped: insertResult.skipped,
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// OKX CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncOkx(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('OKX sync requires --file <path-to-csv>');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'okx')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No OKX account configured. Add one with `daybook account add <id> --source okx --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'okx') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not okx.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = okx.parseOkxCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'OKX',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
     ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
     dbCounts,
   });

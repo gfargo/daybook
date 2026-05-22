@@ -12,4 +12,5 @@ export * as evm from './evm/index.js';
 export * as gemini from './gemini/index.js';
 export * as genericCsv from './generic-csv/index.js';
 export * as kraken from './kraken/index.js';
+export * as okx from './okx/index.js';
 export * as robinhood from './robinhood/index.js';

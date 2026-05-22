@@ -6,7 +6,7 @@ Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT license
 
 ## What it does
 
-Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -89,6 +89,12 @@ daybook account add main-robinhood \
   --source robinhood \
   --identifier you@example.com \
   --label "My Robinhood"
+
+# Add your OKX account
+daybook account add main-okx \
+  --source okx \
+  --identifier you@example.com \
+  --label "My OKX"
 
 # Add a generic CSV import bucket
 daybook account add csv-imports \
@@ -312,6 +318,16 @@ Transaction Date,Transaction Type,Crypto Symbol,Crypto Amount,Crypto Price,Total
 ```
 
 It also accepts common account-activity aliases such as `Activity Date`, `Trans Code`, `Instrument`, `Quantity`, `Price`, and `Amount`. Buys, sells, transfers, fees, and rewards are normalized when the row has enough asset movement data. Ambiguous rows are skipped with warnings rather than silently imported.
+
+### OKX CSV formats
+
+`--source okx` accepts three OKX account-statement exports:
+
+- **V2 unified-account trade history** with `Order id, Time, Trade Type, Symbol, Action, Amount, Trading Unit, ..., Fee, Fee Unit`. Each fill is split across multiple rows sharing an `Order id`; daybook groups them into a single trade event.
+- **V1 legacy trade history** with `Trade ID, Trade Time, Pairs, Amount, Price, Total, Fee, unit`. The legacy BOM prefix and trailing CR on headers are tolerated; `Total` and `Fee` values like `"600 USDT"` are split into amount and currency.
+- **Funding / deposit-withdrawal history** with `id, Time, Type, Amount, Before Balance, After Balance, Symbol`. Deposits, withdrawals, transfers, and distributions are normalized; rewards/distributions are classified as income.
+
+All OKX timestamps are interpreted as UTC. Ambiguous rows are skipped with warnings.
 
 ## CLI Commands
 

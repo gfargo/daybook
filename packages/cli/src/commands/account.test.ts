@@ -28,7 +28,7 @@ describe('resolveAccountSource', () => {
       'Unsupported account source',
     );
     expect(() => resolveAccountSource('solana')).toThrow(
-      'Supported sources: coinbase, kraken, crypto-com, csv, binance, binance-us, gemini, robinhood, eth, polygon, arbitrum, base, optimism, bnb',
+      'Supported sources: coinbase, kraken, crypto-com, csv, binance, binance-us, gemini, okx, robinhood, eth, polygon, arbitrum, base, optimism, bnb',
     );
   });
 });
