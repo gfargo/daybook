@@ -31,6 +31,7 @@ const SourceIdSchema = z.enum([
   'bybit',
   'gemini',
   'kraken',
+  'mexc',
   'okx',
   'robinhood',
   'eth',

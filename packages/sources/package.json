@@ -44,6 +44,10 @@
       "types": "./dist/kraken/index.d.ts",
       "import": "./dist/kraken/index.js"
     },
+    "./mexc": {
+      "types": "./dist/mexc/index.d.ts",
+      "import": "./dist/mexc/index.js"
+    },
     "./okx": {
       "types": "./dist/okx/index.d.ts",
       "import": "./dist/okx/index.js"
@@ -54,7 +58,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/binance/index.ts src/bybit/index.ts src/coinbase/index.ts src/crypto-com/index.ts src/evm/index.ts src/gemini/index.ts src/generic-csv/index.ts src/kraken/index.ts src/okx/index.ts src/robinhood/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
+    "build": "tsup src/index.ts src/binance/index.ts src/bybit/index.ts src/coinbase/index.ts src/crypto-com/index.ts src/evm/index.ts src/gemini/index.ts src/generic-csv/index.ts src/kraken/index.ts src/mexc/index.ts src/okx/index.ts src/robinhood/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
     "test": "vitest run"
   },
   "dependencies": {

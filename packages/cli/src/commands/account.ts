@@ -21,6 +21,7 @@ const SUPPORTED_ACCOUNT_SOURCES = [
   'binance-us',
   'bybit',
   'gemini',
+  'mexc',
   'okx',
   'robinhood',
   'eth',

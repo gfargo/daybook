@@ -6,7 +6,7 @@ Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT license
 
 ## What it does
 
-Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Bybit CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Bybit CSV exports, Crypto.com CSV exports, Gemini CSV exports, MEXC CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Bybit CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Bybit CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, MEXC CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -101,6 +101,12 @@ daybook account add main-bybit \
   --source bybit \
   --identifier you@example.com \
   --label "My Bybit"
+
+# Add your MEXC account
+daybook account add main-mexc \
+  --source mexc \
+  --identifier you@example.com \
+  --label "My MEXC"
 
 # Add a generic CSV import bucket
 daybook account add csv-imports \
@@ -352,6 +358,17 @@ All OKX timestamps are interpreted as UTC. Ambiguous rows are skipped with warni
 - **Funding v1** (legacy) with `Type, Coin, Amount, Wallet Balance, Time(UTC)`. The `Type` enum values `userDeposit`, `internalAccountTransferDeposit`, and `internalAccountTransferWithdrawal` are routed appropriately.
 
 All Bybit timestamps are interpreted as UTC. Spot symbols like `BTCUSDT` are split into base + quote against a list of common quote tickers (USDT, USDC, BTC, ETH, fiats). Derivatives/perp rows are out of scope for this adapter.
+
+### MEXC CSV formats
+
+`--source mexc` accepts the four CSVs MEXC delivers (each as a separate file — there is no combined ledger):
+
+- **Spot trade history** with `[UID,] Pairs, Time, Side, Filled Price, Executed Amount, Total, Fee, Role`. Fee cells can be packed as `"0.123USDT"` or bare numeric (interpreted as the quote asset).
+- **Spot order history** with `Pairs, Time, Type, Direction, Average Filled Price, Filled Quantity, Order Amount, Status`. Only rows with status `Filled` / `Successful` produce events. Useful when only order history is available (no fees recorded).
+- **Deposits** with `UID, Status, Time, Crypto, Network, Deposit Amount, TxID, Progress`. Only `Credited Successfully` rows produce events.
+- **Withdrawals** with `UID, Status, Time, Crypto, Network, Request Amount, Withdrawal Address, memo, TxID, Trading Fee, Settlement Amount, Withdrawal Descriptions`. Only `Withdrawal Successful` rows produce events; the principal leg uses `Settlement Amount` (post-fee) and the `Trading Fee` is added as a fee leg in the same asset.
+
+All MEXC timestamps are interpreted as UTC. Pair symbols are split on underscore first (`BTC_USDT`), else by peeling a known quote ticker (USDT, USDC, BTC, ETH, fiats) off the end of the concatenated form (`BTCUSDT`).
 
 ## CLI Commands
 

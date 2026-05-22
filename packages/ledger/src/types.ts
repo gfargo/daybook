@@ -37,6 +37,7 @@ export type SourceId =
   | 'bybit'
   | 'gemini'
   | 'kraken'  // v1.1
+  | 'mexc'
   | 'okx'
   | 'robinhood'
   | 'eth'

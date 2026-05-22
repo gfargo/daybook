@@ -10,6 +10,7 @@
  *   --source crypto-com --file <path> CSV import
  *   --source gemini --file <path>     CSV import
  *   --source kraken --file <path>     CSV import
+ *   --source mexc --file <path>       CSV import
  *   --source okx --file <path>        CSV import
  *   --source robinhood --file <path>  CSV import
  *   --source csv --file <path>        Generic CSV import
@@ -19,7 +20,7 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { binance, bybit, coinbase, cryptoCom, gemini, genericCsv, kraken, okx, robinhood } from '@daybook/sources';
+import { binance, bybit, coinbase, cryptoCom, gemini, genericCsv, kraken, mexc, okx, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
 import { syncCoinbaseApi as syncCoinbaseApiSource } from '@daybook/sources/coinbase';
 import {
@@ -75,6 +76,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'kraken':
         await syncKraken(opts, config, repo);
         break;
+      case 'mexc':
+        await syncMexc(opts, config, repo);
+        break;
       case 'okx':
         await syncOkx(opts, config, repo);
         break;
@@ -101,7 +105,7 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 function isCsvImportSource(source: string): boolean {
-  return ['binance', 'binance-us', 'bybit', 'coinbase', 'crypto-com', 'gemini', 'kraken', 'okx', 'robinhood', 'csv'].includes(source);
+  return ['binance', 'binance-us', 'bybit', 'coinbase', 'crypto-com', 'gemini', 'kraken', 'mexc', 'okx', 'robinhood', 'csv'].includes(source);
 }
 
 function isCsvOnlySync(opts: SyncOptions): boolean {
@@ -124,6 +128,8 @@ function formatCsvSourceName(source: string): string {
       return 'Gemini';
     case 'kraken':
       return 'Kraken';
+    case 'mexc':
+      return 'MEXC';
     case 'okx':
       return 'OKX';
     case 'robinhood':
@@ -498,6 +504,54 @@ async function syncKraken(
     eventCount: result.events.length,
     inserted: insertResult.inserted,
     skipped: insertResult.skipped,
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MEXC CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncMexc(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('MEXC sync requires --file <path-to-csv>');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'mexc')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No MEXC account configured. Add one with `daybook account add <id> --source mexc --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'mexc') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not mexc.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = mexc.parseMexcCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'MEXC',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
     ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
     dbCounts,
   });
