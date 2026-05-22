@@ -189,7 +189,24 @@ daybook export 2024 --method specific-id --lot-selections ./selections.json
 daybook export 2024 --no-wash-sale-flag
 ```
 
-### 4. Manage overrides
+### 4. Reconcile a 1099-DA
+
+Starting with tax year 2025, exchanges issue Form 1099-DA. Compare your computed disposals against the exchange's reported numbers and get a recommended Form 8949 checkbox (A/B/C):
+
+```bash
+# Reconcile against an exchange 1099-DA CSV
+daybook reconcile 2025 --1099da ~/Downloads/coinbase-1099da.csv
+
+# Tag with an issuer label and write a JSON report
+daybook reconcile 2025 --1099da kraken.csv --issuer Kraken --format json --output reconciliation.json
+
+# Loosen the proceeds/basis tolerance (default is $0.01)
+daybook reconcile 2025 --1099da coinbase.csv --money-tolerance 1.00
+```
+
+The report flags daybook disposals missing from the 1099-DA, 1099-DA rows missing from daybook, and field-level mismatches (proceeds, cost basis, term, acquisition date). It recommends Box A when everything reconciles, Box B when basis is missing or corrections are needed, and Box C when disposals weren't reported on the 1099-DA.
+
+### 5. Manage overrides
 
 ```bash
 # Set a manual price for an unpriced token
@@ -306,6 +323,7 @@ It also accepts common account-activity aliases such as `Activity Date`, `Trans 
 | `daybook events count/list` | Inspect raw events (with `--type`, `--source`, `--account` filters) |
 | `daybook classify` | Run classifier rules (with `--dry-run`, `--review`) |
 | `daybook export <year>` | Export tax-ready CSV (with `--method`, `--lot-selections`, `--no-wash-sale-flag`) |
+| `daybook reconcile <year> --1099da <file>` | Compare disposals against an exchange 1099-DA and recommend Form 8949 box A/B/C |
 | `daybook compare <year>` | Compare FIFO, HIFO, and LIFO side by side |
 | `daybook overrides set/list/remove` | Manage manual price overrides |
 

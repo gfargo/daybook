@@ -76,3 +76,19 @@ export { nftId, formatNftId, formatNftDescription } from './nft-helpers.js';
 
 // ─── Pricing module ──────────────────────────────────────────────────────
 export * from './pricing/index.js';
+
+// ─── 1099-DA reconciliation ──────────────────────────────────────────────
+export {
+  parse1099DaCsv,
+  reconcile,
+  recommendCheckbox,
+  formatReconciliationReport,
+} from './reconcile.js';
+export type {
+  Form1099Da,
+  Form1099DaTransaction,
+  ReconciliationReport,
+  MatchResult,
+  FieldDiscrepancy,
+  ReconcileOptions,
+} from './reconcile.js';

@@ -16,6 +16,7 @@ import {
 } from './commands/events.js';
 import { classifyCommand } from './commands/classify.js';
 import { exportCommand } from './commands/export.js';
+import { reconcileCommand } from './commands/reconcile.js';
 import { compareCommand } from './commands/compare.js';
 import {
     overridesSetCommand,
@@ -176,6 +177,28 @@ Examples:
   daybook export 2024 --method specific-id
   daybook export 2024 --method specific-id --lot-selections ./selections.json`)
   .action(exportCommand);
+
+// ─── daybook reconcile ───────────────────────────────────────────────────
+
+program
+  .command('reconcile <year>')
+  .description('Reconcile daybook disposals against a 1099-DA from an exchange')
+  .requiredOption('--1099da <path>', 'path to 1099-DA CSV file')
+  .option('--method <method>', 'cost-basis method: FIFO, HIFO, LIFO (default from config)')
+  .option('--format <fmt>', 'output format: text, json (default: text)')
+  .option('--output <path>', 'write report to this file instead of stdout')
+  .option('--issuer <name>', 'override issuer name (e.g. Coinbase, Kraken)')
+  .option('--date-tolerance <days>', 'date tolerance for matching (default: 1)')
+  .option('--amount-tolerance <ratio>', 'amount tolerance for matching as a ratio (default: 0.001)')
+  .option('--money-tolerance <usd>', 'USD tolerance for proceeds/basis comparison (default: 0.01)')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook reconcile 2025 --1099da ~/Downloads/coinbase-1099da.csv
+  daybook reconcile 2025 --1099da kraken.csv --issuer Kraken
+  daybook reconcile 2025 --1099da coinbase.csv --format json --output reconciliation.json
+  daybook reconcile 2025 --1099da coinbase.csv --money-tolerance 1.00`)
+  .action(reconcileCommand);
 
 // ─── daybook compare ─────────────────────────────────────────────────────
 
