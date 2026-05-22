@@ -34,6 +34,7 @@ export type SourceId =
   | 'csv'
   | 'binance'
   | 'binance-us'
+  | 'bybit'
   | 'gemini'
   | 'kraken'  // v1.1
   | 'okx'

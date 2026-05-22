@@ -6,7 +6,7 @@ Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT license
 
 ## What it does
 
-Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Bybit CSV exports, Crypto.com CSV exports, Gemini CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Bybit CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -95,6 +95,12 @@ daybook account add main-okx \
   --source okx \
   --identifier you@example.com \
   --label "My OKX"
+
+# Add your Bybit account
+daybook account add main-bybit \
+  --source bybit \
+  --identifier you@example.com \
+  --label "My Bybit"
 
 # Add a generic CSV import bucket
 daybook account add csv-imports \
@@ -336,6 +342,16 @@ It also accepts common account-activity aliases such as `Activity Date`, `Trans 
 - **Funding / deposit-withdrawal history** with `id, Time, Type, Amount, Before Balance, After Balance, Symbol`. Deposits, withdrawals, transfers, and distributions are normalized; rewards/distributions are classified as income.
 
 All OKX timestamps are interpreted as UTC. Ambiguous rows are skipped with warnings.
+
+### Bybit CSV formats
+
+`--source bybit` accepts three Bybit account-export profiles (unzip first; Bybit delivers a zip with multiple CSVs):
+
+- **Spot trade history** (`Bybit_unifiedAccount_spotTradeHistory.csv` or `Bybit_spotOrders_spotTradeHistory.csv`) with `Order ID, Transaction ID, Filled Time, Symbol, Side, Filled Price, Quantity, Exec Value, Fee, Fee Currency`. Bybit emits one row per partial fill; daybook groups rows that share an `Order ID` into a single trade event and sums quantities, exec values, and fees.
+- **Funding v2** (current asset deposit/withdrawal export) with `Date & Time(UTC), Coin, QTY, Type, Account Balance, Description`. The `Description` column drives direction ("Deposit", "Withdrawal", "Transfer to/from Derivatives Account", etc.); bonuses, rebates, and airdrops are classified as income.
+- **Funding v1** (legacy) with `Type, Coin, Amount, Wallet Balance, Time(UTC)`. The `Type` enum values `userDeposit`, `internalAccountTransferDeposit`, and `internalAccountTransferWithdrawal` are routed appropriately.
+
+All Bybit timestamps are interpreted as UTC. Spot symbols like `BTCUSDT` are split into base + quote against a list of common quote tickers (USDT, USDC, BTC, ETH, fiats). Derivatives/perp rows are out of scope for this adapter.
 
 ## CLI Commands
 
