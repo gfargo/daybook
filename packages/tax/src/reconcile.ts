@@ -648,6 +648,45 @@ export function recommendCheckbox(inputs: CheckboxInputs): {
   };
 }
 
+// ─── Form 8949 box assignment ────────────────────────────────────────────
+
+/**
+ * Per-disposal Form 8949 box category, derived from a reconciliation.
+ *
+ * The shape mirrors `Map<sourceEntryId, 'A' | 'B' | 'C'>` so it can be
+ * passed directly to `buildForm8949Data` via `Form8949Options.disposalCheckboxes`.
+ *
+ * Assignment rules:
+ *   - Matched cleanly **and** 1099-DA reported a cost basis → **A**
+ *     (reported to IRS with basis).
+ *   - Matched cleanly but basis was blank on the 1099-DA → **B**
+ *     (reported, but basis must be filled in).
+ *   - Matched with field-level discrepancies → **B**
+ *     (reported, but requires a correction).
+ *   - Not on the 1099-DA → **C**
+ *     (not reported to the IRS).
+ */
+export function classifyDisposalsForForm8949(
+  report: ReconciliationReport,
+): Map<string, 'A' | 'B' | 'C'> {
+  const out = new Map<string, 'A' | 'B' | 'C'>();
+
+  for (const m of report.matched) {
+    out.set(
+      m.disposal.sourceEntryId,
+      m.reported.costBasis !== '' ? 'A' : 'B',
+    );
+  }
+  for (const m of report.mismatched) {
+    out.set(m.disposal.sourceEntryId, 'B');
+  }
+  for (const d of report.missingIn1099Da) {
+    out.set(d.sourceEntryId, 'C');
+  }
+
+  return out;
+}
+
 // ─── Text formatting ─────────────────────────────────────────────────────
 
 /**

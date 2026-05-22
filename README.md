@@ -212,6 +212,14 @@ daybook reconcile 2025 --1099da coinbase.csv --money-tolerance 1.00
 
 The report flags daybook disposals missing from the 1099-DA, 1099-DA rows missing from daybook, and field-level mismatches (proceeds, cost basis, term, acquisition date). It recommends Box A when everything reconciles, Box B when basis is missing or corrections are needed, and Box C when disposals weren't reported on the 1099-DA.
 
+For Form 8949 generation, pass `--1099da` directly to `daybook export` and each disposal is auto-assigned to box A, B, or C based on the reconciliation:
+
+```bash
+daybook export 2025 --format 8949 --1099da ~/Downloads/coinbase-1099da.csv
+```
+
+The resulting PDF contains separate page groups for each box that has at least one disposal.
+
 ### 5. Manage overrides
 
 ```bash

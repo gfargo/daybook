@@ -163,7 +163,8 @@ program
   .description('Generate a tax-ready export for the given year')
   .option('--method <method>', 'cost-basis method: FIFO, HIFO, LIFO, or specific-id (default: FIFO)')
   .option('--format <fmt>', 'output format: csv, 8949, schedule-d, txf (default: csv)')
-  .option('--8949-checkbox <category>', 'Form 8949 checkbox category: A, B, or C (default: C)')
+  .option('--8949-checkbox <category>', 'Form 8949 checkbox category for unreconciled disposals: A, B, or C (default: C)')
+  .option('--1099da <path>', 'reconcile against a 1099-DA CSV and assign Form 8949 box A/B/C per disposal (use with --format 8949)')
   .option('--output <path>', 'output file path (default: ./daybook-<year>-<method>.<ext>)')
   .option('--lot-selections <path>', 'replay specific-id lot selections from a JSON file')
   .option('--no-wash-sale-flag', 'omit the Wash Sale? column from the CSV')
@@ -174,6 +175,7 @@ Examples:
   daybook export 2024 --method HIFO --output ./taxes-2024.csv
   daybook export 2024 --format 8949
   daybook export 2024 --format 8949 --8949-checkbox A
+  daybook export 2025 --format 8949 --1099da ~/Downloads/coinbase-1099da.csv
   daybook export 2024 --format schedule-d
   daybook export 2024 --format txf
   daybook export 2024 --method specific-id

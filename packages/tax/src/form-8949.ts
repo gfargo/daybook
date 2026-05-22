@@ -97,8 +97,22 @@ export interface Form8949Data {
  * Options for Form 8949 generation.
  */
 export interface Form8949Options {
-  /** Checkbox category override. Default: 'C'. */
+  /**
+   * Default checkbox category for any disposal not present in
+   * `disposalCheckboxes`. Default: 'C'.
+   */
   checkbox?: CheckboxCategory | undefined;
+  /**
+   * Per-disposal checkbox override, keyed by `DisposalResult.sourceEntryId`.
+   *
+   * When provided, disposals are grouped by their assigned checkbox and
+   * separate page groups are emitted for each box category that has at
+   * least one row. Disposals whose `sourceEntryId` is not present in
+   * the map fall back to the `checkbox` default.
+   *
+   * Typical source: `classifyDisposalsForForm8949(reconciliationReport)`.
+   */
+  disposalCheckboxes?: Map<string, CheckboxCategory> | undefined;
 }
 
 // ─── Checkbox field mapping ──────────────────────────────────────────────
@@ -187,6 +201,11 @@ function chunk<T>(arr: T[], size: number): T[][] {
  * Splits disposals into short-term (Part I) and long-term (Part II),
  * paginates into 11-row pages, and computes per-page column totals.
  *
+ * When `options.disposalCheckboxes` is provided, disposals are first
+ * grouped by their assigned box (A/B/C). One page group is emitted per
+ * box category that has at least one row, in the canonical order A, B,
+ * C. Pages within a group are paginated independently.
+ *
  * @param result - The complete tax computation result.
  * @param options - Optional generation options.
  * @returns Structured Form 8949 data ready for PDF rendering.
@@ -195,45 +214,62 @@ export function buildForm8949Data(
   result: TaxResult,
   options?: Form8949Options,
 ): Form8949Data {
-  const checkbox: CheckboxCategory = options?.checkbox ?? 'C';
-
-  // Split disposals by term and convert to rows
-  const shortTermRows = result.disposals
-    .filter((d) => d.term === 'short-term')
-    .map(disposalToRow);
-
-  const longTermRows = result.disposals
-    .filter((d) => d.term === 'long-term')
-    .map(disposalToRow);
+  const defaultCheckbox: CheckboxCategory = options?.checkbox ?? 'C';
+  const perDisposal = options?.disposalCheckboxes;
 
   // If no disposals at all, return empty pages array
-  if (shortTermRows.length === 0 && longTermRows.length === 0) {
+  if (result.disposals.length === 0) {
     return { year: result.year, pages: [] };
   }
 
-  // Paginate each part into chunks of ROWS_PER_PAGE
-  const shortTermPages = shortTermRows.length > 0
-    ? chunk(shortTermRows, ROWS_PER_PAGE)
-    : [[]];
-  const longTermPages = longTermRows.length > 0
-    ? chunk(longTermRows, ROWS_PER_PAGE)
-    : [[]];
+  // Bucket disposals by their assigned checkbox category
+  const buckets: Record<CheckboxCategory, DisposalResult[]> = {
+    A: [],
+    B: [],
+    C: [],
+  };
 
-  // Build pages — we need enough pages to cover both parts
-  const pageCount = Math.max(shortTermPages.length, longTermPages.length);
+  for (const d of result.disposals) {
+    const box = perDisposal?.get(d.sourceEntryId) ?? defaultCheckbox;
+    buckets[box].push(d);
+  }
+
   const pages: Form8949Page[] = [];
+  const order: CheckboxCategory[] = ['A', 'B', 'C'];
 
-  for (let i = 0; i < pageCount; i++) {
-    const partI = shortTermPages[i] ?? [];
-    const partII = longTermPages[i] ?? [];
+  for (const box of order) {
+    const disposals = buckets[box];
+    if (disposals.length === 0) continue;
 
-    pages.push({
-      checkbox,
-      partI,
-      partII,
-      partITotals: computeTotals(partI),
-      partIITotals: computeTotals(partII),
-    });
+    const shortTermRows = disposals
+      .filter((d) => d.term === 'short-term')
+      .map(disposalToRow);
+    const longTermRows = disposals
+      .filter((d) => d.term === 'long-term')
+      .map(disposalToRow);
+
+    if (shortTermRows.length === 0 && longTermRows.length === 0) continue;
+
+    const shortTermPages = shortTermRows.length > 0
+      ? chunk(shortTermRows, ROWS_PER_PAGE)
+      : [[]];
+    const longTermPages = longTermRows.length > 0
+      ? chunk(longTermRows, ROWS_PER_PAGE)
+      : [[]];
+
+    const pageCount = Math.max(shortTermPages.length, longTermPages.length);
+    for (let i = 0; i < pageCount; i++) {
+      const partI = shortTermPages[i] ?? [];
+      const partII = longTermPages[i] ?? [];
+
+      pages.push({
+        checkbox: box,
+        partI,
+        partII,
+        partITotals: computeTotals(partI),
+        partIITotals: computeTotals(partII),
+      });
+    }
   }
 
   return { year: result.year, pages };

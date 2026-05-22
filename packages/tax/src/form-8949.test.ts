@@ -321,6 +321,111 @@ describe('buildForm8949Data', () => {
     });
   });
 
+  describe('per-disposal checkbox', () => {
+    it('groups disposals into separate page groups per box', () => {
+      const result = makeTaxResult([
+        makeDisposal({ sourceEntryId: 'a1', term: 'short-term' }),
+        makeDisposal({ sourceEntryId: 'a2', term: 'long-term' }),
+        makeDisposal({ sourceEntryId: 'b1', term: 'short-term' }),
+        makeDisposal({ sourceEntryId: 'c1', term: 'long-term' }),
+      ]);
+      const boxes = new Map<string, 'A' | 'B' | 'C'>([
+        ['a1', 'A'],
+        ['a2', 'A'],
+        ['b1', 'B'],
+        ['c1', 'C'],
+      ]);
+
+      const data = buildForm8949Data(result, { disposalCheckboxes: boxes });
+
+      // Expect one page for each of A (short+long), B (short), C (long)
+      expect(data.pages.map((p) => p.checkbox)).toEqual(['A', 'B', 'C']);
+
+      // Box A page contains one short-term and one long-term row
+      const pageA = data.pages.find((p) => p.checkbox === 'A')!;
+      expect(pageA.partI).toHaveLength(1);
+      expect(pageA.partII).toHaveLength(1);
+
+      const pageB = data.pages.find((p) => p.checkbox === 'B')!;
+      expect(pageB.partI).toHaveLength(1);
+      expect(pageB.partII).toHaveLength(0);
+
+      const pageC = data.pages.find((p) => p.checkbox === 'C')!;
+      expect(pageC.partI).toHaveLength(0);
+      expect(pageC.partII).toHaveLength(1);
+    });
+
+    it('falls back to the default checkbox for unmapped disposals', () => {
+      const result = makeTaxResult([
+        makeDisposal({ sourceEntryId: 'mapped' }),
+        makeDisposal({ sourceEntryId: 'unmapped' }),
+      ]);
+      const boxes = new Map<string, 'A' | 'B' | 'C'>([['mapped', 'A']]);
+
+      const data = buildForm8949Data(result, {
+        disposalCheckboxes: boxes,
+        checkbox: 'C',
+      });
+
+      expect(data.pages.map((p) => p.checkbox)).toEqual(['A', 'C']);
+      expect(data.pages[0]!.partI).toHaveLength(1);
+      expect(data.pages[1]!.partI).toHaveLength(1);
+    });
+
+    it('always emits boxes in canonical A, B, C order', () => {
+      const result = makeTaxResult([
+        makeDisposal({ sourceEntryId: 'c1' }),
+        makeDisposal({ sourceEntryId: 'a1' }),
+        makeDisposal({ sourceEntryId: 'b1' }),
+      ]);
+      const boxes = new Map<string, 'A' | 'B' | 'C'>([
+        ['c1', 'C'],
+        ['a1', 'A'],
+        ['b1', 'B'],
+      ]);
+
+      const data = buildForm8949Data(result, { disposalCheckboxes: boxes });
+      expect(data.pages.map((p) => p.checkbox)).toEqual(['A', 'B', 'C']);
+    });
+
+    it('paginates within each box independently', () => {
+      const shortA = makeDisposals(15, { term: 'short-term' }).map((d, i) => ({
+        ...d,
+        sourceEntryId: `a${i}`,
+      }));
+      const shortC = makeDisposals(5, { term: 'short-term' }).map((d, i) => ({
+        ...d,
+        sourceEntryId: `c${i}`,
+      }));
+      const result = makeTaxResult([...shortA, ...shortC]);
+      const boxes = new Map<string, 'A' | 'B' | 'C'>();
+      for (const d of shortA) boxes.set(d.sourceEntryId, 'A');
+      for (const d of shortC) boxes.set(d.sourceEntryId, 'C');
+
+      const data = buildForm8949Data(result, { disposalCheckboxes: boxes });
+
+      // A: 15 short-term → 2 pages (11 + 4)
+      // C: 5 short-term → 1 page
+      const aPages = data.pages.filter((p) => p.checkbox === 'A');
+      const cPages = data.pages.filter((p) => p.checkbox === 'C');
+      expect(aPages).toHaveLength(2);
+      expect(cPages).toHaveLength(1);
+      expect(aPages[0]!.partI).toHaveLength(ROWS_PER_PAGE);
+      expect(aPages[1]!.partI).toHaveLength(4);
+      expect(cPages[0]!.partI).toHaveLength(5);
+    });
+
+    it('ignores an empty disposalCheckboxes map and uses the default checkbox', () => {
+      const result = makeTaxResult([makeDisposal()]);
+      const data = buildForm8949Data(result, {
+        disposalCheckboxes: new Map(),
+        checkbox: 'A',
+      });
+      expect(data.pages).toHaveLength(1);
+      expect(data.pages[0]!.checkbox).toBe('A');
+    });
+  });
+
   describe('row count invariant', () => {
     it('total rows across all pages equals disposal count', () => {
       const shortCount = 15;

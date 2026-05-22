@@ -13,6 +13,7 @@ import {
   parse1099DaCsv,
   reconcile,
   recommendCheckbox,
+  classifyDisposalsForForm8949,
   formatReconciliationReport,
 } from './reconcile.js';
 import type { Form1099DaTransaction } from './reconcile.js';
@@ -373,6 +374,78 @@ describe('recommendCheckbox', () => {
       missingInDaybook: [],
     };
     expect(recommendCheckbox(m).checkbox).toBe('C');
+  });
+});
+
+// ─── classifyDisposalsForForm8949 ───────────────────────────────────────
+
+describe('classifyDisposalsForForm8949', () => {
+  it('assigns A to matched disposals with reported basis', () => {
+    const report = reconcile([makeDisposal({ sourceEntryId: 'd1' })], {
+      year: 2025,
+      issuer: 'Test',
+      transactions: [makeReportedTx({ costBasis: '2000.00' })],
+      warnings: [],
+    });
+    const boxes = classifyDisposalsForForm8949(report);
+    expect(boxes.get('d1')).toBe('A');
+  });
+
+  it('assigns B to matched disposals when 1099-DA basis is blank', () => {
+    const report = reconcile([makeDisposal({ sourceEntryId: 'd1' })], {
+      year: 2025,
+      issuer: 'Test',
+      transactions: [makeReportedTx({ costBasis: '' })],
+      warnings: [],
+    });
+    const boxes = classifyDisposalsForForm8949(report);
+    expect(boxes.get('d1')).toBe('B');
+  });
+
+  it('assigns B to disposals with field-level mismatches', () => {
+    const report = reconcile([makeDisposal({ sourceEntryId: 'd1', proceeds: '3000.00' })], {
+      year: 2025,
+      issuer: 'Test',
+      transactions: [makeReportedTx({ proceeds: '2950.00' })],
+      warnings: [],
+    });
+    const boxes = classifyDisposalsForForm8949(report);
+    expect(boxes.get('d1')).toBe('B');
+  });
+
+  it('assigns C to disposals not on the 1099-DA', () => {
+    const report = reconcile(
+      [makeDisposal({ sourceEntryId: 'd1', asset: 'SOL', amount: '10' })],
+      {
+        year: 2025,
+        issuer: 'Test',
+        transactions: [makeReportedTx({ asset: 'ETH' })],
+        warnings: [],
+      },
+    );
+    const boxes = classifyDisposalsForForm8949(report);
+    expect(boxes.get('d1')).toBe('C');
+  });
+
+  it('handles a mixed report across A, B, and C', () => {
+    const dA = makeDisposal({ sourceEntryId: 'A1', asset: 'ETH' });
+    const dB = makeDisposal({ sourceEntryId: 'B1', asset: 'BTC', proceeds: '5000.00' });
+    const dC = makeDisposal({ sourceEntryId: 'C1', asset: 'SOL', amount: '10' });
+
+    const report = reconcile([dA, dB, dC], {
+      year: 2025,
+      issuer: 'Test',
+      transactions: [
+        makeReportedTx({ asset: 'ETH', costBasis: '2000.00' }),
+        makeReportedTx({ asset: 'BTC', proceeds: '4500.00', costBasis: '4000.00' }),
+      ],
+      warnings: [],
+    });
+
+    const boxes = classifyDisposalsForForm8949(report);
+    expect(boxes.get('A1')).toBe('A');
+    expect(boxes.get('B1')).toBe('B');
+    expect(boxes.get('C1')).toBe('C');
   });
 });
 

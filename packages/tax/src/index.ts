@@ -82,6 +82,7 @@ export {
   parse1099DaCsv,
   reconcile,
   recommendCheckbox,
+  classifyDisposalsForForm8949,
   formatReconciliationReport,
 } from './reconcile.js';
 export type {

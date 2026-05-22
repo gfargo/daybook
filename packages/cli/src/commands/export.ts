@@ -34,7 +34,10 @@ import {
     PricingChain,
     SourceReportedProvider,
     CoinGeckoProvider,
-    ManualOverrideProvider
+    ManualOverrideProvider,
+    parse1099DaCsv,
+    reconcile,
+    classifyDisposalsForForm8949,
 } from '@daybook/tax';
 import type { CostBasisStrategy, DisposalResult, CheckboxCategory } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
@@ -53,6 +56,7 @@ export interface ExportOptions {
   noWashSaleFlag?: boolean;
   format?: string;
   '8949Checkbox'?: string;
+  '1099da'?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -559,7 +563,24 @@ export async function exportCommand(
           console.log(`No disposals found for ${yearNum}. Skipping Form 8949 generation.`);
           return;
         }
-        const pdfBytes = await formatForm8949(taxResult, { checkbox });
+        const form8949Opts: { checkbox: CheckboxCategory; disposalCheckboxes?: Map<string, CheckboxCategory> } = { checkbox };
+
+        if (opts['1099da']) {
+          const csvContents = readFileSync(opts['1099da'], 'utf-8');
+          const form1099Da = parse1099DaCsv(csvContents, { year: yearNum });
+          const reconciliation = reconcile(taxResult.disposals, form1099Da);
+          form8949Opts.disposalCheckboxes = classifyDisposalsForForm8949(reconciliation);
+
+          console.log('1099-DA reconciliation:');
+          console.log(`  Issuer:              ${form1099Da.issuer || '(unspecified)'}`);
+          console.log(`  Matched:             ${reconciliation.matched.length}`);
+          console.log(`  Mismatched:          ${reconciliation.mismatched.length}`);
+          console.log(`  Missing on 1099-DA:  ${reconciliation.missingIn1099Da.length}`);
+          console.log(`  Missing in daybook:  ${reconciliation.missingInDaybook.length}`);
+          console.log('');
+        }
+
+        const pdfBytes = await formatForm8949(taxResult, form8949Opts);
         writeFileSync(outputPath, pdfBytes);
         break;
       }
