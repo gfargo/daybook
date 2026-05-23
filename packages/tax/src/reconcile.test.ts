@@ -375,6 +375,25 @@ describe('recommendCheckbox', () => {
     };
     expect(recommendCheckbox(m).checkbox).toBe('C');
   });
+
+  it('returns B when daybook has no disposals but 1099-DA has rows', () => {
+    // The dangerous case: user forgot to import a source, so daybook
+    // has nothing to reconcile but the IRS already has reported data.
+    const m = {
+      matched: [],
+      mismatched: [],
+      missingIn1099Da: [],
+      missingInDaybook: [
+        makeReportedTx({ asset: 'BTC' }),
+        makeReportedTx({ asset: 'ETH' }),
+        makeReportedTx({ asset: 'SOL' }),
+      ],
+    };
+    const result = recommendCheckbox(m);
+    expect(result.checkbox).toBe('B');
+    expect(result.reason).toContain('Daybook has 0 disposals');
+    expect(result.reason).toContain('1099-DA reports 3');
+  });
 });
 
 // ─── classifyDisposalsForForm8949 ───────────────────────────────────────

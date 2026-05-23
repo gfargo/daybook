@@ -610,6 +610,17 @@ export function recommendCheckbox(inputs: CheckboxInputs): {
   const total = matchedCount + mismatchedCount + missingIn1099DaCount;
 
   if (total === 0) {
+    // No daybook disposals at all. If the 1099-DA still has rows, daybook
+    // is missing data the IRS already knows about — silently picking C
+    // would cause under-reporting. Surface the issue explicitly.
+    if (missingInDaybookCount > 0) {
+      return {
+        checkbox: 'B',
+        reason:
+          `Daybook has 0 disposals but the 1099-DA reports ${missingInDaybookCount}. ` +
+          `Import the source data into daybook before relying on this form.`,
+      };
+    }
     return {
       checkbox: 'C',
       reason: 'No disposals to reconcile.',

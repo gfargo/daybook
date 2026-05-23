@@ -481,6 +481,61 @@ describe('renderForm8949Pdf', () => {
     // Multi-page PDF should be larger than single-page
     expect(multiPdf.length).toBeGreaterThan(singlePdf.length);
   });
+
+  it('emits one PDF page-pair per box group for multi-box data', async () => {
+    const { PDFDocument } = await import('pdf-lib');
+
+    // Three disposals assigned across all three boxes
+    const disposals = [
+      makeDisposal({ sourceEntryId: 'a1' }),
+      makeDisposal({ sourceEntryId: 'b1' }),
+      makeDisposal({ sourceEntryId: 'c1' }),
+    ];
+    const result = makeTaxResult(disposals);
+    const boxes = new Map<'A' | 'B' | 'C', 'A' | 'B' | 'C'>([
+      ['A', 'A'], ['B', 'B'], ['C', 'C'],
+    ]);
+    const disposalCheckboxes = new Map<string, 'A' | 'B' | 'C'>([
+      ['a1', 'A'], ['b1', 'B'], ['c1', 'C'],
+    ]);
+
+    const data = buildForm8949Data(result, { disposalCheckboxes });
+    expect(data.pages).toHaveLength(3);
+    expect(data.pages.map(p => p.checkbox)).toEqual(['A', 'B', 'C']);
+
+    const pdf = await renderForm8949Pdf(data);
+    const doc = await PDFDocument.load(pdf);
+
+    // Each logical page = 2 PDF pages (Part I + Part II). Three boxes → 6 pages.
+    expect(doc.getPageCount()).toBe(6);
+
+    // Sanity: single-box version should be only 2 pages
+    const singleBoxData = buildForm8949Data(result, { checkbox: 'A' });
+    const singlePdf = await renderForm8949Pdf(singleBoxData);
+    const singleDoc = await PDFDocument.load(singlePdf);
+    expect(singleDoc.getPageCount()).toBe(2);
+
+    // Suppress unused warning
+    void boxes;
+  });
+
+  it('emits two page-pairs when disposals split across two boxes only', async () => {
+    const { PDFDocument } = await import('pdf-lib');
+    const disposals = [
+      makeDisposal({ sourceEntryId: 'a1' }),
+      makeDisposal({ sourceEntryId: 'c1', term: 'long-term' }),
+    ];
+    const result = makeTaxResult(disposals);
+    const disposalCheckboxes = new Map<string, 'A' | 'B' | 'C'>([
+      ['a1', 'A'],
+      ['c1', 'C'],
+    ]);
+
+    const data = buildForm8949Data(result, { disposalCheckboxes });
+    const pdf = await renderForm8949Pdf(data);
+    const doc = await PDFDocument.load(pdf);
+    expect(doc.getPageCount()).toBe(4);
+  });
 });
 
 // ─── formatForm8949 (convenience) ────────────────────────────────────────

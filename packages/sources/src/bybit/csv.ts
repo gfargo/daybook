@@ -75,6 +75,8 @@ const QUOTE_CANDIDATES = [
   'USDC',
   'USDK',
   'TUSD',
+  'FDUSD',
+  'PYUSD',
   'DAI',
   'BTC',
   'ETH',

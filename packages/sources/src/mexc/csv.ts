@@ -91,6 +91,8 @@ const QUOTE_CANDIDATES = [
   'USDF',
   'USD1',
   'TUSD',
+  'FDUSD',
+  'PYUSD',
   'DAI',
   'BTC',
   'ETH',
@@ -231,8 +233,12 @@ function buildTradeEvent(
     }
   }
 
+  // ID uses only the load-bearing fields (not the full row) so that a
+  // future MEXC export which adds or reorders columns still produces
+  // stable IDs for the same logical trade.
+  const idSeed = `${pair}|${timestamp.toISOString()}|${side}|${baseAmount(filledAmount)}|${baseAmount(total)}|${feeRaw ?? ''}`;
   return {
-    id: `mexc:trade:${hashRows([row.original])}`,
+    id: `mexc:trade:${hashString(idSeed)}`,
     source: 'mexc',
     accountId,
     timestamp,
@@ -241,6 +247,14 @@ function buildTradeEvent(
     notes: `${side} ${pair}`.trim(),
     raw: row.original,
   };
+}
+
+function baseAmount(d: Decimal): string {
+  return d.toFixed();
+}
+
+function hashString(seed: string): string {
+  return createHash('sha256').update(seed).digest('hex').slice(0, 16);
 }
 
 /**
@@ -273,7 +287,7 @@ function buildOrderEvent(
 ): RawEvent | undefined {
   const statusRaw = (pick(row, ['status']) ?? '').toLowerCase();
   if (statusRaw && !statusRaw.includes('filled') && !statusRaw.includes('success')) {
-    // Only fully-filled / successful orders become events
+    warnings.push(`Row ${row.rowNumber} skipped: MEXC order status "${statusRaw}" is not Filled/Successful`);
     return undefined;
   }
 
@@ -304,8 +318,9 @@ function buildOrderEvent(
   legs.push(assetLeg(base, isBuy ? filledQty.abs() : filledQty.abs().negated()));
   legs.push(assetLeg(quote, isBuy ? orderAmount.abs().negated() : orderAmount.abs()));
 
+  const idSeed = `${pair}|${timestamp.toISOString()}|${direction}|${baseAmount(filledQty)}|${baseAmount(orderAmount)}`;
   return {
-    id: `mexc:order:${hashRows([row.original])}`,
+    id: `mexc:order:${hashString(idSeed)}`,
     source: 'mexc',
     accountId,
     timestamp,
@@ -325,7 +340,8 @@ function buildDepositEvent(
 ): RawEvent | undefined {
   const status = (pick(row, ['status']) ?? '').toLowerCase();
   if (status && !DEPOSIT_SUCCESS_STATUSES.has(status)) {
-    return undefined; // skipped silently — pending/failed
+    warnings.push(`Row ${row.rowNumber} skipped: MEXC deposit status "${status}" is not a success state`);
+    return undefined;
   }
 
   const timeStr = pick(row, ['time']);
@@ -369,6 +385,7 @@ function buildWithdrawalEvent(
 ): RawEvent | undefined {
   const status = (pick(row, ['status']) ?? '').toLowerCase();
   if (status && !WITHDRAWAL_SUCCESS_STATUSES.has(status)) {
+    warnings.push(`Row ${row.rowNumber} skipped: MEXC withdrawal status "${status}" is not a success state`);
     return undefined;
   }
 

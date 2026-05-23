@@ -577,6 +577,38 @@ export async function exportCommand(
           console.log(`  Mismatched:          ${reconciliation.mismatched.length}`);
           console.log(`  Missing on 1099-DA:  ${reconciliation.missingIn1099Da.length}`);
           console.log(`  Missing in daybook:  ${reconciliation.missingInDaybook.length}`);
+          console.log(`  Recommended box:     ${reconciliation.recommendedCheckbox} — ${reconciliation.recommendedCheckboxReason}`);
+
+          if (reconciliation.missingInDaybook.length > 0) {
+            console.log('');
+            console.log(`  WARNING: ${reconciliation.missingInDaybook.length} 1099-DA row(s) have no matching daybook disposal.`);
+            console.log('  These may be tax events daybook has not imported. Run `daybook reconcile` for details');
+            console.log('  before relying on this Form 8949.');
+          }
+
+          if (reconciliation.mismatched.length > 0) {
+            console.log('');
+            console.log(`  Field-level discrepancies in ${reconciliation.mismatched.length} disposal(s):`);
+            for (const m of reconciliation.mismatched.slice(0, 5)) {
+              const fields = m.discrepancies.map(d => d.field).join(', ');
+              console.log(`    ${m.disposal.asset} ${m.disposal.amount} on ${m.disposal.disposedAt.toISOString().slice(0, 10)} — ${fields}`);
+            }
+            if (reconciliation.mismatched.length > 5) {
+              console.log(`    ... and ${reconciliation.mismatched.length - 5} more (run \`daybook reconcile\` for full details)`);
+            }
+          }
+
+          if (form1099Da.warnings.length > 0) {
+            console.log('');
+            console.log(`  1099-DA parser warnings (${form1099Da.warnings.length}):`);
+            for (const w of form1099Da.warnings.slice(0, 5)) {
+              console.log(`    - ${w}`);
+            }
+            if (form1099Da.warnings.length > 5) {
+              console.log(`    ... and ${form1099Da.warnings.length - 5} more`);
+            }
+          }
+
           console.log('');
         }
 

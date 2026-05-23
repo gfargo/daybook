@@ -186,7 +186,6 @@ function buildEventFromGroup(
 ): RawEvent[] | undefined {
   const legs: GroupLeg[] = [];
   let earliest: Date | undefined;
-  const descs = new Set<string>();
 
   for (const row of rows) {
     const timeStr = pick(row, ['time']);
@@ -200,7 +199,6 @@ function buildEventFromGroup(
     if (!asset || !change || change.isZero()) continue;
 
     legs.push({ asset, amount: change, desc, rowNumber: row.rowNumber });
-    descs.add(desc);
   }
 
   if (!earliest || legs.length === 0) {

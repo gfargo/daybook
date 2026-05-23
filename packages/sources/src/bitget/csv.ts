@@ -83,6 +83,8 @@ const QUOTE_CANDIDATES = [
   'USDT',
   'USDC',
   'BUSD',
+  'FDUSD',
+  'PYUSD',
   'DAI',
   'TUSD',
   'BTC',
@@ -319,6 +321,7 @@ function buildDepositEvent(
 ): RawEvent | undefined {
   const status = (pick(row, ['status']) ?? '').toLowerCase();
   if (status && !SUCCESS_STATUSES.has(status)) {
+    warnings.push(`Row ${row.rowNumber} skipped: Bitget deposit status "${status}" is not a success state`);
     return undefined;
   }
 
@@ -361,6 +364,7 @@ function buildWithdrawalEvent(
 ): RawEvent | undefined {
   const status = (pick(row, ['status']) ?? '').toLowerCase();
   if (status && !SUCCESS_STATUSES.has(status)) {
+    warnings.push(`Row ${row.rowNumber} skipped: Bitget withdrawal status "${status}" is not a success state`);
     return undefined;
   }
 
