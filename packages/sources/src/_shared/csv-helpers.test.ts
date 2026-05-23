@@ -72,6 +72,12 @@ describe('csv-helpers', () => {
       expect(parseAmount('0')?.toString()).toBe('0');
       expect(parseAmount('0.0')?.toString()).toBe('0');
     });
+    it('with zeroAsUndefined returns undefined for zero (legacy adapter mode)', () => {
+      expect(parseAmount('0', { zeroAsUndefined: true })).toBeUndefined();
+      expect(parseAmount('0.0', { zeroAsUndefined: true })).toBeUndefined();
+      // Non-zero values are unaffected
+      expect(parseAmount('1.5', { zeroAsUndefined: true })?.toString()).toBe('1.5');
+    });
   });
 
   describe('parseTimestamp', () => {

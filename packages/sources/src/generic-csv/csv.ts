@@ -1,7 +1,18 @@
-import { createHash } from 'node:crypto';
-import { parse as parseCsv } from 'csv-parse/sync';
 import Decimal from 'decimal.js';
 import type { AssetLeg, RawEvent, RawEventType } from '@daybook/ledger';
+import {
+  FIAT_CURRENCIES,
+  hashRows,
+  normalizeAsset,
+  normalizeHeader,
+  parseAmount,
+  parseCsvRows,
+  parseTimestamp,
+  pick,
+  sanitizeNativeId,
+  type CsvRow,
+  type NormalizedRow,
+} from '../_shared/csv-helpers.js';
 
 export interface ParseGenericCsvOptions {
   /** Account ID assigned to all events from this file. */
@@ -19,13 +30,7 @@ export interface ParseGenericCsvResult {
   warnings: string[];
 }
 
-export type GenericCsvRow = Record<string, string>;
-
-interface NormalizedRow {
-  rowNumber: number;
-  original: GenericCsvRow;
-  values: Record<string, string>;
-}
+export type GenericCsvRow = CsvRow;
 
 const DATE_ALIASES = [
   'date',
@@ -145,20 +150,6 @@ const ID_ALIASES = ['id', 'transaction id', 'tx id', 'native id', 'record id'];
 const TX_HASH_ALIASES = ['tx hash', 'txhash', 'transaction hash', 'hash', 'txid'];
 const NOTES_ALIASES = ['notes', 'note', 'description', 'memo', 'comment'];
 
-const FIAT_CURRENCIES = new Set([
-  'USD',
-  'EUR',
-  'GBP',
-  'CAD',
-  'AUD',
-  'NZD',
-  'JPY',
-  'CHF',
-  'CNY',
-  'HKD',
-  'SGD',
-]);
-
 /**
  * Parse a broad, exchange-neutral CSV ledger into daybook RawEvents.
  *
@@ -172,7 +163,7 @@ export function parseGenericCsv(
   options: ParseGenericCsvOptions,
 ): ParseGenericCsvResult {
   const warnings: string[] = [];
-  const rows = parseRows(contents);
+  const rows = parseCsvRows(contents);
   const events: RawEvent[] = [];
   const idCounts = new Map<string, number>();
   let unparsed = 0;
@@ -199,27 +190,6 @@ export function parseGenericCsv(
   };
 }
 
-function parseRows(contents: string): NormalizedRow[] {
-  const records = parseCsv(contents, {
-    bom: true,
-    columns: true,
-    skip_empty_lines: true,
-    relax_column_count: true,
-    trim: true,
-  }) as GenericCsvRow[];
-
-  return records.map((record, index) => {
-    const values: Record<string, string> = {};
-    for (const [header, rawValue] of Object.entries(record)) {
-      values[normalizeHeader(header)] = String(rawValue ?? '').trim();
-    }
-    return {
-      rowNumber: index + 2,
-      original: record,
-      values,
-    };
-  });
-}
 
 function buildEvent(
   row: NormalizedRow,
@@ -394,17 +364,14 @@ function isFiatCurrency(asset: string): boolean {
   return FIAT_CURRENCIES.has(asset.toUpperCase());
 }
 
-function pick(row: NormalizedRow, aliases: readonly string[]): string | undefined {
-  for (const alias of aliases) {
-    const value = row.values[normalizeHeader(alias)];
-    if (value !== undefined && value.trim() !== '') return value.trim();
-  }
-  return undefined;
+/** Legacy behavior: zero-amount rows are skipped at the parser level. */
+function parseAmountSkipZero(value: string | undefined): Decimal | undefined {
+  return parseAmount(value, { zeroAsUndefined: true });
 }
 
 function pickDecimal(row: NormalizedRow, aliases: readonly string[]): Decimal | undefined {
   const value = pick(row, aliases);
-  return parseAmount(value);
+  return parseAmountSkipZero(value);
 }
 
 function pickUsdValue(
@@ -414,56 +381,6 @@ function pickUsdValue(
   if (!amount) return undefined;
   if (!currency) return amount;
   return normalizeAsset(currency) === 'USD' ? amount : undefined;
-}
-
-function parseAmount(value: string | undefined): Decimal | undefined {
-  if (!value) return undefined;
-
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === '-') return undefined;
-
-  const negativeByParens = trimmed.startsWith('(') && trimmed.endsWith(')');
-  const sanitized = trimmed
-    .replace(/^\((.*)\)$/, '$1')
-    .replace(/[$£€¥,\s]/g, '');
-
-  if (!sanitized) return undefined;
-
-  try {
-    const decimal = new Decimal(sanitized);
-    if (decimal.isZero()) return undefined;
-    return negativeByParens ? decimal.negated() : decimal;
-  } catch {
-    return undefined;
-  }
-}
-
-function parseTimestamp(value: string): Date | undefined {
-  const trimmed = value.trim();
-  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(trimmed)
-    ? `${trimmed.replace(' ', 'T')}${hasTimeZone(trimmed) ? '' : 'Z'}`
-    : trimmed;
-  const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? undefined : date;
-}
-
-function hasTimeZone(value: string): boolean {
-  return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
-}
-
-function normalizeAsset(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  return trimmed.startsWith('0x') ? trimmed.toLowerCase() : trimmed.toUpperCase();
-}
-
-function normalizeHeader(value: string): string {
-  return value
-    .replace(/^\uFEFF/, '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '');
 }
 
 function buildEventId(
@@ -476,18 +393,5 @@ function buildEventId(
     return `csv:${sanitizeNativeId(nativeId)}`;
   }
 
-  return `csv:row:${hashRow(row.original)}`;
-}
-
-function sanitizeNativeId(value: string): string {
-  const sanitized = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120);
-  return sanitized || hashRow({ value });
-}
-
-function hashRow(row: GenericCsvRow): string {
-  const stable = Object.keys(row)
-    .sort()
-    .map(key => `${key}=${row[key] ?? ''}`)
-    .join('\n');
-  return createHash('sha256').update(stable).digest('hex').slice(0, 16);
+  return `csv:row:${hashRows([row.original])}`;
 }
