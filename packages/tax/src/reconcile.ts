@@ -233,12 +233,70 @@ function parseDate(value: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-function parseMoney(value: string): string {
+/**
+ * Try to detect whether a money string uses European formatting
+ * (`1.234,56`) instead of US (`1,234.56`). European format would be
+ * silently misparsed by the US-assuming parser as `1.23456`.
+ *
+ * Heuristic: if the string has BOTH `.` and `,`, the LAST separator
+ * is the decimal point. If only one of `.`/`,` appears and it has
+ * exactly 2 digits after it AND no other digits follow, that
+ * separator is ambiguous — return `{ ambiguous: true }`.
+ */
+function detectMoneyFormat(value: string): {
+  format: 'us' | 'european' | 'unambiguous';
+  ambiguous: boolean;
+} {
+  const cleaned = value.replace(/[$£€¥\s()]/g, '');
+  const hasDot = cleaned.includes('.');
+  const hasComma = cleaned.includes(',');
+  if (hasDot && hasComma) {
+    const lastDot = cleaned.lastIndexOf('.');
+    const lastComma = cleaned.lastIndexOf(',');
+    return { format: lastDot > lastComma ? 'us' : 'european', ambiguous: false };
+  }
+  if (hasComma && !hasDot) {
+    // "1,5" → ambiguous (could be European 1.5 or US thousands of 15)
+    // "1,234,567" → US (thousands; no decimal)
+    // "1,23" → European
+    const parts = cleaned.split(',');
+    const onlyTwoDigitTail = parts.length === 2 && /^\d{2}$/.test(parts[1] ?? '');
+    return { format: onlyTwoDigitTail ? 'european' : 'us', ambiguous: onlyTwoDigitTail };
+  }
+  return { format: 'unambiguous', ambiguous: false };
+}
+
+function parseMoney(value: string, warnings?: string[], rowNumber?: number): string {
   if (!value) return '';
-  // Strip $, commas, parentheses (used for negatives in some exports)
   const trimmed = value.trim();
   const negative = /^\(.*\)$/.test(trimmed);
-  const cleaned = trimmed.replace(/[$,()]/g, '').replace(/\s+/g, '');
+
+  // Strip $, parentheses, currency symbols
+  const symbolStripped = trimmed
+    .replace(/^\((.*)\)$/, '$1')
+    .replace(/[$£€¥]/g, '')
+    .replace(/\s+/g, '');
+
+  if (symbolStripped === '' || symbolStripped === '-') return '';
+
+  // Detect formatting before stripping separators
+  const { format, ambiguous } = detectMoneyFormat(symbolStripped);
+
+  let cleaned: string;
+  if (format === 'european') {
+    // 1.234,56 → 1234.56
+    cleaned = symbolStripped.replace(/\./g, '').replace(',', '.');
+    if (warnings && ambiguous && rowNumber !== undefined) {
+      warnings.push(
+        `Row ${rowNumber}: ambiguous money format "${value}" parsed as European (` +
+          `decimal comma); pass --money-tolerance generously if this is wrong.`,
+      );
+    }
+  } else {
+    // US: strip commas
+    cleaned = symbolStripped.replace(/,/g, '');
+  }
+
   if (cleaned === '' || cleaned === '-') return '';
   try {
     const dec = new Decimal(cleaned);
@@ -355,7 +413,7 @@ export function parse1099DaCsv(
       continue;
     }
 
-    const proceeds = parseMoney(proceedsRaw);
+    const proceeds = parseMoney(proceedsRaw, warnings, sourceRow);
     if (!proceeds) {
       warnings.push(`Row ${sourceRow}: missing or invalid proceeds; skipped`);
       continue;
@@ -368,8 +426,8 @@ export function parse1099DaCsv(
       asset,
       amount: new Decimal(amount).toString(),
       proceeds,
-      costBasis: parseMoney(costBasisRaw),
-      washSaleDisallowed: parseMoney(washSaleRaw),
+      costBasis: parseMoney(costBasisRaw, warnings, sourceRow),
+      washSaleDisallowed: parseMoney(washSaleRaw, warnings, sourceRow),
       term: parseTerm(termRaw),
       sourceRow,
     });
@@ -417,30 +475,58 @@ function relativeDifference(a: string, b: string): number {
   return da.minus(db).abs().div(max).toNumber();
 }
 
-function pickBestMatch(
-  disposal: DisposalResult,
-  candidates: Form1099DaTransaction[],
+/**
+ * Edge-sorted greedy bipartite matching.
+ *
+ * Builds every eligible (disposal, candidate) edge with a similarity
+ * score, sorts edges best-first, then greedily commits each edge that
+ * doesn't conflict with an already-committed match. This fixes the
+ * input-order pathology of naive greedy: if disposal A has many
+ * eligible candidates and disposal B has only one, the edge-sorted
+ * approach is more likely to leave B's only candidate available.
+ *
+ * Trade-off: this is a 1/2-approximation in the worst case (a true
+ * optimal matching would need Hungarian / min-cost bipartite). In
+ * practice, with the tight tolerances daybook uses for crypto tax
+ * reconciliation (1 day, 0.1% amount), each disposal usually has at
+ * most one or two eligible candidates and edge-sorted greedy reaches
+ * the optimum. The rare pathological case (3+ overlapping candidates
+ * with non-monotone score ordering) is documented as a known limit.
+ */
+function matchBipartite(
+  disposals: DisposalResult[],
+  candidates: Iterable<Form1099DaTransaction>,
   opts: Required<ReconcileOptions>,
-): Form1099DaTransaction | null {
-  let best: Form1099DaTransaction | null = null;
-  let bestScore = Infinity;
-
-  for (const c of candidates) {
-    if (c.asset !== disposal.asset.toUpperCase()) continue;
-    const dDays = daysBetween(c.dateSold, disposal.disposedAt);
-    if (dDays > opts.dateToleranceDays) continue;
-    const aDiff = relativeDifference(c.amount, disposal.amount);
-    if (aDiff > opts.amountTolerance) continue;
-
-    // Score: prefer closest date, then closest amount
-    const score = dDays * 10 + aDiff;
-    if (score < bestScore) {
-      best = c;
-      bestScore = score;
+): Map<DisposalResult, Form1099DaTransaction> {
+  type Edge = {
+    disposal: DisposalResult;
+    candidate: Form1099DaTransaction;
+    score: number;
+  };
+  const edges: Edge[] = [];
+  for (const d of disposals) {
+    for (const c of candidates) {
+      if (c.asset !== d.asset.toUpperCase()) continue;
+      const dDays = daysBetween(c.dateSold, d.disposedAt);
+      if (dDays > opts.dateToleranceDays) continue;
+      const aDiff = relativeDifference(c.amount, d.amount);
+      if (aDiff > opts.amountTolerance) continue;
+      edges.push({ disposal: d, candidate: c, score: dDays * 10 + aDiff });
     }
   }
 
-  return best;
+  edges.sort((a, b) => a.score - b.score);
+
+  const matched = new Map<DisposalResult, Form1099DaTransaction>();
+  const usedCandidates = new Set<Form1099DaTransaction>();
+  for (const edge of edges) {
+    if (matched.has(edge.disposal)) continue;
+    if (usedCandidates.has(edge.candidate)) continue;
+    matched.set(edge.disposal, edge.candidate);
+    usedCandidates.add(edge.candidate);
+  }
+
+  return matched;
 }
 
 function detectFieldDiscrepancies(
@@ -524,19 +610,17 @@ export function reconcile(
     moneyTolerance: options.moneyTolerance ?? DEFAULT_MONEY_TOLERANCE,
   };
 
-  const remaining = new Set(form1099Da.transactions);
+  const assignment = matchBipartite(disposals, form1099Da.transactions, opts);
   const matched: MatchResult[] = [];
   const mismatched: MatchResult[] = [];
   const missingIn1099Da: DisposalResult[] = [];
 
   for (const disposal of disposals) {
-    const match = pickBestMatch(disposal, [...remaining], opts);
+    const match = assignment.get(disposal);
     if (!match) {
       missingIn1099Da.push(disposal);
       continue;
     }
-    remaining.delete(match);
-
     const discrepancies = detectFieldDiscrepancies(disposal, match, opts);
     const result: MatchResult = { disposal, reported: match, discrepancies };
     if (discrepancies.length === 0) {
@@ -546,7 +630,8 @@ export function reconcile(
     }
   }
 
-  const missingInDaybook = [...remaining];
+  const matchedCandidates = new Set(assignment.values());
+  const missingInDaybook = form1099Da.transactions.filter((c) => !matchedCandidates.has(c));
 
   const { checkbox, reason } = recommendCheckbox({
     matched,

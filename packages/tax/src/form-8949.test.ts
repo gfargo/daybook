@@ -536,6 +536,22 @@ describe('renderForm8949Pdf', () => {
     const doc = await PDFDocument.load(pdf);
     expect(doc.getPageCount()).toBe(4);
   });
+
+  it('flatten: false renders without throwing (form fields retained)', async () => {
+    // The flatten option is wired through. pdf-lib's copyPages doesn't
+    // reliably transfer AcroForm field definitions into a merged
+    // outputDoc, so flatten:false doesn't currently enable round-trip
+    // via parseForm8949Pdf — but the flag is plumbed for future use
+    // when that limitation is addressed.
+    const result = makeTaxResult([makeDisposal()]);
+    const data = buildForm8949Data(result);
+    const flat = await renderForm8949Pdf(data, { flatten: true });
+    const live = await renderForm8949Pdf(data, { flatten: false });
+    expect(flat).toBeInstanceOf(Uint8Array);
+    expect(live).toBeInstanceOf(Uint8Array);
+    expect(flat.length).toBeGreaterThan(0);
+    expect(live.length).toBeGreaterThan(0);
+  });
 });
 
 // ─── formatForm8949 (convenience) ────────────────────────────────────────

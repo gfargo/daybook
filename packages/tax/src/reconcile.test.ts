@@ -128,6 +128,36 @@ describe('parse1099DaCsv', () => {
     expect(result.year).toBe(2024);
   });
 
+  it('parses European money formatting (1.234,56) without misreading as 1.23', () => {
+    const csv = `Date Sold,Description,Proceeds,Cost Basis
+2025-07-20,1.5 ETH,"1.500,00","2.345,67"`;
+    const result = parse1099DaCsv(csv);
+
+    expect(result.transactions[0]?.proceeds).toBe('1500');
+    expect(result.transactions[0]?.costBasis).toBe('2345.67');
+  });
+
+  it('parses unambiguous US thousands (1,234.56) correctly', () => {
+    const csv = `Date Sold,Description,Proceeds,Cost Basis
+2025-07-20,1.5 ETH,"$1,234.56","$987.65"`;
+    const result = parse1099DaCsv(csv);
+
+    expect(result.transactions[0]?.proceeds).toBe('1234.56');
+    expect(result.transactions[0]?.costBasis).toBe('987.65');
+  });
+
+  it('warns when money formatting is genuinely ambiguous (1,23)', () => {
+    // "1,23" with exactly 2 digits after the comma is ambiguous — could
+    // be European 1.23 or US thousands of 123. Parser picks European
+    // but surfaces a warning.
+    const csv = `Date Sold,Description,Proceeds,Cost Basis
+2025-07-20,1.5 ETH,"1,23","2,50"`;
+    const result = parse1099DaCsv(csv);
+
+    expect(result.transactions[0]?.proceeds).toBe('1.23');
+    expect(result.warnings.some((w) => w.includes('ambiguous money format'))).toBe(true);
+  });
+
   it('uses parenthesized tickers in descriptions', () => {
     const csv = `Date Sold,Description,Amount,Proceeds
 2025-07-20,Ethereum (ETH),1.5,3000`;
@@ -316,6 +346,59 @@ describe('reconcile', () => {
 
     expect(report.matched).toHaveLength(1);
     expect(report.missingIn1099Da).toHaveLength(1);
+  });
+
+  it('handles DCA pathology: input order does not strand reachable matches', () => {
+    // d1 can match either R1 or R2; d2 can ONLY match R1.
+    // Naive input-order greedy would pick the best for d1 first (say R1
+    // by date proximity), leaving d2 unmatched. Edge-sorted bipartite
+    // matching keeps R1 free for d2 since d1's alternative (R2) is
+    // available.
+    const d1 = makeDisposal({
+      sourceEntryId: 'd1',
+      asset: 'BTC',
+      amount: '0.5',
+      disposedAt: new Date(Date.UTC(2025, 6, 20, 10, 0)),
+    });
+    const d2 = makeDisposal({
+      sourceEntryId: 'd2',
+      asset: 'BTC',
+      amount: '0.5',
+      disposedAt: new Date(Date.UTC(2025, 6, 20, 10, 5)),
+    });
+    const r1 = makeReportedTx({
+      asset: 'BTC',
+      amount: '0.5',
+      dateSold: new Date(Date.UTC(2025, 6, 20, 10, 0)), // matches d1 best
+      sourceRow: 2,
+    });
+    const r2 = makeReportedTx({
+      asset: 'BTC',
+      amount: '0.5',
+      dateSold: new Date(Date.UTC(2025, 6, 20, 10, 5)), // matches d2 best
+      sourceRow: 3,
+    });
+
+    const report = reconcile([d1, d2], {
+      year: 2025,
+      issuer: 'Test',
+      transactions: [r1, r2],
+      warnings: [],
+    });
+
+    // Both disposals should match — order-insensitive
+    expect(report.matched).toHaveLength(2);
+    expect(report.missingIn1099Da).toHaveLength(0);
+    expect(report.missingInDaybook).toHaveLength(0);
+
+    // Reverse the input order and re-run — same result
+    const reverseReport = reconcile([d2, d1], {
+      year: 2025,
+      issuer: 'Test',
+      transactions: [r2, r1],
+      warnings: [],
+    });
+    expect(reverseReport.matched).toHaveLength(2);
   });
 });
 

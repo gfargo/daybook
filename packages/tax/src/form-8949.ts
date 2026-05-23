@@ -405,6 +405,20 @@ function checkCheckbox(
   form.getCheckBox(fieldName).check();
 }
 
+/** Render options. */
+export interface RenderOptions {
+  /**
+   * Whether to flatten form fields into static page content. Default
+   * `true` — this is required for IRS-acceptable filing because some
+   * PDF readers won't render unflattened AcroForm content correctly.
+   *
+   * Pass `false` only for tests that need to round-trip the data via
+   * `parseForm8949Pdf`. Flattened PDFs have no live form fields, so
+   * the parser cannot read them back.
+   */
+  flatten?: boolean;
+}
+
 /**
  * Render Form 8949 data into a filled PDF.
  *
@@ -413,10 +427,16 @@ function checkCheckbox(
  * additional page and merges them.
  *
  * @param data - Structured Form 8949 data.
+ * @param options - Optional render options (see `RenderOptions`).
  * @returns PDF bytes as Uint8Array.
  * @throws {Error} If PDF generation fails.
  */
-export async function renderForm8949Pdf(data: Form8949Data): Promise<Uint8Array> {
+export async function renderForm8949Pdf(
+  data: Form8949Data,
+  options: RenderOptions = {},
+): Promise<Uint8Array> {
+  const flatten = options.flatten ?? true;
+
   if (data.pages.length === 0) {
     // Return an empty template with no data filled
     const templateBytes = loadTemplate();
@@ -459,8 +479,10 @@ export async function renderForm8949Pdf(data: Form8949Data): Promise<Uint8Array>
         fillTotals(form, PART_II_TOTALS, page.partIITotals);
       }
 
-      // Flatten the form so fields become static text
-      form.flatten();
+      if (flatten) {
+        // Flatten the form so fields become static text
+        form.flatten();
+      }
 
       // Copy both pages into the output document
       const [p1, p2] = await outputDoc.copyPages(templateDoc, [0, 1]);
@@ -516,16 +538,18 @@ function detectCheckbox(
 /**
  * Parse a Form 8949 PDF back into structured data.
  *
- * Reads AcroForm field values from each page pair and reconstructs
- * the Form8949Data structure. Used for round-trip testing.
+ * Used for round-trip testing of `renderForm8949Pdf` output. The PDF
+ * must have been rendered with `{ flatten: false }` — the default
+ * (`flatten: true`) bakes form fields into static content and cannot
+ * be parsed back.
  *
- * Note: This only works on non-flattened PDFs (forms with live fields).
- * Flattened PDFs have their fields baked into the page content and
- * cannot be parsed back. For round-trip testing, use `buildForm8949Data`
- * directly rather than render → parse.
+ * **Multi-page limitation:** for multi-page PDFs (continuation sheets
+ * or per-checkbox page groups), pdf-lib renames duplicated form fields
+ * during `copyPages`, so this parser currently only reads the first
+ * logical page-pair correctly. Multi-page round-trip is a known gap.
  *
  * @param pdf - PDF bytes to parse.
- * @returns Structured Form 8949 data.
+ * @returns Structured Form 8949 data (first logical page-pair only).
  */
 export async function parseForm8949Pdf(pdf: Uint8Array): Promise<Form8949Data> {
   const doc = await PDFDocument.load(pdf);
