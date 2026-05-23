@@ -21,12 +21,24 @@
  * separators differ by version: `BTC-USDT` (V2) vs `BTC_USDT` (V1).
  */
 
-import { createHash } from 'node:crypto';
-import { parse as parseCsv } from 'csv-parse/sync';
 import Decimal from 'decimal.js';
 import type { AssetLeg, RawEvent, RawEventType } from '@daybook/ledger';
+import {
+  FIAT_CURRENCIES,
+  assetLeg,
+  hashRows,
+  normalizeAsset,
+  parseAmount,
+  parseCsvRows,
+  parseTimestamp,
+  pick,
+  sanitizeNativeId,
+  suffixDuplicateIds,
+  type CsvRow,
+  type NormalizedRow,
+} from '../_shared/csv-helpers.js';
 
-export type OkxCsvRow = Record<string, string>;
+export type OkxCsvRow = CsvRow;
 
 export interface ParseOkxOptions {
   accountId: string;
@@ -39,31 +51,11 @@ export interface ParseOkxResult {
   warnings: string[];
 }
 
-interface NormalizedRow {
-  rowNumber: number;
-  original: OkxCsvRow;
-  values: Record<string, string>;
-}
-
 type Profile = 'trades-v2' | 'trades-v1' | 'funding';
 
 const TRADES_V2_HEADERS = ['orderid', 'tradetype', 'action', 'tradingunit'];
 const TRADES_V1_HEADERS = ['tradeid', 'tradetime', 'pairs', 'price', 'unit'];
 const FUNDING_HEADERS = ['time', 'type', 'amount', 'symbol'];
-
-const FIAT_CURRENCIES = new Set([
-  'USD',
-  'EUR',
-  'GBP',
-  'CAD',
-  'AUD',
-  'NZD',
-  'JPY',
-  'CHF',
-  'CNY',
-  'HKD',
-  'SGD',
-]);
 
 const QUOTE_CANDIDATES = [
   ...FIAT_CURRENCIES,
@@ -84,7 +76,7 @@ export function parseOkxCsv(
   contents: string,
   options: ParseOkxOptions,
 ): ParseOkxResult {
-  const rows = parseRows(contents);
+  const rows = parseCsvRows(contents);
   const warnings: string[] = [];
   const events: RawEvent[] = [];
   let unparsedRowCount = 0;
@@ -124,29 +116,7 @@ export function parseOkxCsv(
   };
 }
 
-// ─── Row parsing ─────────────────────────────────────────────────────────
-
-function parseRows(contents: string): NormalizedRow[] {
-  const records = parseCsv(contents, {
-    bom: true,
-    columns: true,
-    skip_empty_lines: true,
-    relax_column_count: true,
-    trim: true,
-  }) as OkxCsvRow[];
-
-  return records.map((record, index) => {
-    const values: Record<string, string> = {};
-    for (const [header, rawValue] of Object.entries(record)) {
-      values[normalizeHeader(header)] = String(rawValue ?? '').trim();
-    }
-    return {
-      rowNumber: index + 2,
-      original: record,
-      values,
-    };
-  });
-}
+// ─── Profile detection ──────────────────────────────────────────────────
 
 function detectProfile(rows: NormalizedRow[]): Profile | undefined {
   const first = rows[0];
@@ -512,92 +482,3 @@ function parseValueWithUnit(value: string | undefined): {
   return amount ? { amount } : undefined;
 }
 
-function assetLeg(asset: string, amount: Decimal, feeFlag = false): AssetLeg {
-  return {
-    asset,
-    amount: amount.toFixed(),
-    ...(feeFlag ? { feeFlag: true } : {}),
-  };
-}
-
-function pick(row: NormalizedRow, aliases: readonly string[]): string | undefined {
-  for (const alias of aliases) {
-    const value = row.values[normalizeHeader(alias)];
-    if (value !== undefined && value.trim() !== '') return value.trim();
-  }
-  return undefined;
-}
-
-function parseAmount(value: string | undefined): Decimal | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === '-') return undefined;
-  const negativeByParens = trimmed.startsWith('(') && trimmed.endsWith(')');
-  const sanitized = trimmed
-    .replace(/^\((.*)\)$/, '$1')
-    .replace(/[$£€¥,\s]/g, '');
-  if (!sanitized) return undefined;
-  try {
-    const decimal = new Decimal(sanitized);
-    return negativeByParens ? decimal.negated() : decimal;
-  } catch {
-    return undefined;
-  }
-}
-
-function parseTimestamp(value: string): Date | undefined {
-  const trimmed = value.trim().replace(/\r$/, '');
-  if (!trimmed) return undefined;
-  // OKX format: "2024-01-15 12:34:56" (UTC, no offset)
-  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(trimmed)
-    ? `${trimmed.replace(' ', 'T')}${hasTimeZone(trimmed) ? '' : 'Z'}`
-    : trimmed;
-  const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? undefined : date;
-}
-
-function hasTimeZone(value: string): boolean {
-  return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
-}
-
-function normalizeAsset(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  return trimmed.startsWith('0x') ? trimmed.toLowerCase() : trimmed.toUpperCase();
-}
-
-function normalizeHeader(value: string): string {
-  return value
-    .replace(/^﻿/, '')
-    .replace(/\r$/, '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '');
-}
-
-function suffixDuplicateIds(events: RawEvent[]): RawEvent[] {
-  const counts = new Map<string, number>();
-  return events.map((event) => {
-    const count = counts.get(event.id) ?? 0;
-    counts.set(event.id, count + 1);
-    return count === 0 ? event : { ...event, id: `${event.id}:${count + 1}` };
-  });
-}
-
-function sanitizeNativeId(value: string): string {
-  const sanitized = value.trim().replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 120);
-  return sanitized || hashRows([{ value }]);
-}
-
-function hashRows(rows: OkxCsvRow[]): string {
-  const stable = rows
-    .map((row) =>
-      Object.keys(row)
-        .sort()
-        .map((key) => `${key}=${row[key] ?? ''}`)
-        .join('\n'),
-    )
-    .join('\n---\n');
-  return createHash('sha256').update(stable).digest('hex').slice(0, 16);
-}
