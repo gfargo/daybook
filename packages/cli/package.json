@@ -10,6 +10,14 @@
     "url": "git+https://github.com/gfargo/daybook.git",
     "directory": "packages/cli"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [
     "crypto",
     "tax",
