@@ -2,7 +2,7 @@
 
 Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT licensed.
 
-**Status:** latest release v0.2.0; `main` is preparing v0.3.0 with tax form generation, NFT cost-basis tracking, and Coinbase API sync. All packages are implemented, with 517 tests passing locally.
+**Status:** latest release v0.4.0 — adds 1099-DA reconciliation with per-disposal Form 8949 box assignment, five new exchange adapters (OKX, Bybit, MEXC, Gate.io, Bitget), and a shared CSV helpers module. 655 tests passing.
 
 ## What it does
 

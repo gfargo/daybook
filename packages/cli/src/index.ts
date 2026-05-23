@@ -30,7 +30,7 @@ const SOURCE_HELP = 'source type: coinbase, kraken, crypto-com, csv, binance, bi
 program
   .name('daybook')
   .description('Self-hosted crypto wallet auditing and tax reporting')
-  .version('0.2.0');
+  .version('0.4.0');
 
 // ─── daybook init ────────────────────────────────────────────────────────
 
