@@ -498,6 +498,45 @@ export async function renderForm8949Pdf(
   }
 }
 
+/**
+ * Render Form 8949 data as one PDF per checkbox category.
+ *
+ * The IRS prefers separate Form 8949 filings per checkbox category
+ * (A/B/C and their long-term equivalents D/E/F), so when a
+ * reconciliation produces disposals in multiple boxes this mode emits
+ * one file per box instead of a single merged PDF.
+ *
+ * Returns a Map keyed by the checkbox categories present in `data`.
+ * Boxes with no disposals are omitted. The Map preserves canonical
+ * A→B→C insertion order.
+ *
+ * @param data - Structured Form 8949 data (typically built with a
+ *               `disposalCheckboxes` map from a 1099-DA reconciliation).
+ * @param options - Optional render options forwarded to `renderForm8949Pdf`.
+ * @returns Map from checkbox category to that box's PDF bytes.
+ */
+export async function renderForm8949PdfPerBox(
+  data: Form8949Data,
+  options: RenderOptions = {},
+): Promise<Map<CheckboxCategory, Uint8Array>> {
+  const grouped = new Map<CheckboxCategory, Form8949Page[]>();
+  for (const page of data.pages) {
+    const existing = grouped.get(page.checkbox);
+    if (existing) existing.push(page);
+    else grouped.set(page.checkbox, [page]);
+  }
+
+  const out = new Map<CheckboxCategory, Uint8Array>();
+  // Emit in canonical A → B → C order regardless of input order.
+  for (const box of ['A', 'B', 'C'] as const) {
+    const pages = grouped.get(box);
+    if (!pages || pages.length === 0) continue;
+    const subData: Form8949Data = { year: data.year, pages };
+    out.set(box, await renderForm8949Pdf(subData, options));
+  }
+  return out;
+}
+
 // ─── PDF parser (for round-trip testing) ─────────────────────────────────
 
 /**

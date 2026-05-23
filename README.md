@@ -244,6 +244,13 @@ daybook export 2025 --format 8949 --1099da ~/Downloads/coinbase-1099da.csv
 
 The resulting PDF contains separate page groups for each box that has at least one disposal.
 
+Add `--per-box` to write **one PDF per checkbox category** instead of a single merged file — typically clearer for IRS filing, since each box category is normally submitted as its own Form 8949:
+
+```bash
+daybook export 2025 --format 8949 --1099da coinbase.csv --per-box
+# Writes: daybook-2025-FIFO-8949-boxA.pdf, daybook-2025-FIFO-8949-boxC.pdf, etc.
+```
+
 ### 5. Manage overrides
 
 ```bash

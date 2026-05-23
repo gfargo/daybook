@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildForm8949Data,
     renderForm8949Pdf,
+    renderForm8949PdfPerBox,
     formatForm8949,
     ROWS_PER_PAGE,
 } from './form-8949.js';
@@ -535,6 +536,65 @@ describe('renderForm8949Pdf', () => {
     const pdf = await renderForm8949Pdf(data);
     const doc = await PDFDocument.load(pdf);
     expect(doc.getPageCount()).toBe(4);
+  });
+
+  it('renderForm8949PdfPerBox emits one PDF per box category present', async () => {
+    const disposals = [
+      makeDisposal({ sourceEntryId: 'a1' }),
+      makeDisposal({ sourceEntryId: 'a2', term: 'long-term' }),
+      makeDisposal({ sourceEntryId: 'c1' }),
+    ];
+    const result = makeTaxResult(disposals);
+    const disposalCheckboxes = new Map<string, 'A' | 'B' | 'C'>([
+      ['a1', 'A'],
+      ['a2', 'A'],
+      ['c1', 'C'],
+    ]);
+
+    const data = buildForm8949Data(result, { disposalCheckboxes });
+    const map = await renderForm8949PdfPerBox(data);
+
+    expect([...map.keys()]).toEqual(['A', 'C']);
+    expect(map.get('A')).toBeInstanceOf(Uint8Array);
+    expect(map.get('C')).toBeInstanceOf(Uint8Array);
+
+    const { PDFDocument } = await import('pdf-lib');
+    const aDoc = await PDFDocument.load(map.get('A')!);
+    const cDoc = await PDFDocument.load(map.get('C')!);
+    // Box A had one short-term + one long-term → 1 page-pair = 2 PDF pages
+    expect(aDoc.getPageCount()).toBe(2);
+    // Box C had one short-term → 1 page-pair = 2 PDF pages
+    expect(cDoc.getPageCount()).toBe(2);
+  });
+
+  it('renderForm8949PdfPerBox emits in canonical A→B→C order', async () => {
+    const disposals = [
+      makeDisposal({ sourceEntryId: 'c1' }),
+      makeDisposal({ sourceEntryId: 'a1' }),
+      makeDisposal({ sourceEntryId: 'b1' }),
+    ];
+    const result = makeTaxResult(disposals);
+    const disposalCheckboxes = new Map<string, 'A' | 'B' | 'C'>([
+      ['c1', 'C'],
+      ['a1', 'A'],
+      ['b1', 'B'],
+    ]);
+    const data = buildForm8949Data(result, { disposalCheckboxes });
+    const map = await renderForm8949PdfPerBox(data);
+    expect([...map.keys()]).toEqual(['A', 'B', 'C']);
+  });
+
+  it('renderForm8949PdfPerBox returns empty Map for empty data', async () => {
+    const data = buildForm8949Data(makeTaxResult([]));
+    const map = await renderForm8949PdfPerBox(data);
+    expect(map.size).toBe(0);
+  });
+
+  it('renderForm8949PdfPerBox handles single-box data', async () => {
+    const result = makeTaxResult([makeDisposal()]);
+    const data = buildForm8949Data(result, { checkbox: 'A' });
+    const map = await renderForm8949PdfPerBox(data);
+    expect([...map.keys()]).toEqual(['A']);
   });
 
   it('flatten: false renders without throwing (form fields retained)', async () => {

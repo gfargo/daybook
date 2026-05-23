@@ -25,6 +25,8 @@ import {
     formatForm8949,
     formatScheduleD,
     formatTxf,
+    renderForm8949PdfPerBox,
+    buildForm8949Data,
     FIFO,
     HIFO,
     LIFO,
@@ -57,6 +59,7 @@ export interface ExportOptions {
   format?: string;
   '8949Checkbox'?: string;
   '1099da'?: string;
+  perBox?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -610,6 +613,32 @@ export async function exportCommand(
           }
 
           console.log('');
+        }
+
+        if (opts.perBox) {
+          // One PDF per checkbox category. Useful for IRS filing where
+          // each box category is typically submitted separately.
+          const data = buildForm8949Data(taxResult, form8949Opts);
+          const perBox = await renderForm8949PdfPerBox(data);
+
+          if (perBox.size === 0) {
+            console.log(`No disposals to render for ${yearNum}.`);
+            return;
+          }
+
+          const baseDir = opts.output
+            ? opts.output.replace(/\.pdf$/i, '')
+            : `./daybook-${yearNum}-${methodName}-8949`;
+
+          const written: string[] = [];
+          for (const [box, bytes] of perBox) {
+            const path = `${baseDir}-box${box}.pdf`;
+            writeFileSync(path, bytes);
+            written.push(path);
+          }
+          console.log(`Wrote ${written.length} Form 8949 PDF(s):`);
+          for (const p of written) console.log(`  ${p}`);
+          break;
         }
 
         const pdfBytes = await formatForm8949(taxResult, form8949Opts);

@@ -49,8 +49,8 @@ export { formatCsv } from './csv-export.js';
 export type { FormatCsvOptions } from './csv-export.js';
 
 // ─── Form 8949 PDF export ────────────────────────────────────────────────
-export { formatForm8949, buildForm8949Data, renderForm8949Pdf, parseForm8949Pdf } from './form-8949.js';
-export type { CheckboxCategory, Form8949Row, Form8949Page, Form8949Data, Form8949Options } from './form-8949.js';
+export { formatForm8949, buildForm8949Data, renderForm8949Pdf, renderForm8949PdfPerBox, parseForm8949Pdf } from './form-8949.js';
+export type { CheckboxCategory, Form8949Row, Form8949Page, Form8949Data, Form8949Options, RenderOptions } from './form-8949.js';
 
 // ─── Schedule D PDF export ───────────────────────────────────────────────
 export { formatScheduleD, buildScheduleDData, renderScheduleDPdf } from './schedule-d.js';
