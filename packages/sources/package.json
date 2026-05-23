@@ -32,6 +32,10 @@
       "types": "./dist/evm/index.d.ts",
       "import": "./dist/evm/index.js"
     },
+    "./gateio": {
+      "types": "./dist/gateio/index.d.ts",
+      "import": "./dist/gateio/index.js"
+    },
     "./generic-csv": {
       "types": "./dist/generic-csv/index.d.ts",
       "import": "./dist/generic-csv/index.js"
@@ -58,7 +62,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts src/binance/index.ts src/bybit/index.ts src/coinbase/index.ts src/crypto-com/index.ts src/evm/index.ts src/gemini/index.ts src/generic-csv/index.ts src/kraken/index.ts src/mexc/index.ts src/okx/index.ts src/robinhood/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
+    "build": "tsup src/index.ts src/binance/index.ts src/bybit/index.ts src/coinbase/index.ts src/crypto-com/index.ts src/evm/index.ts src/gateio/index.ts src/gemini/index.ts src/generic-csv/index.ts src/kraken/index.ts src/mexc/index.ts src/okx/index.ts src/robinhood/index.ts --format esm --dts --tsconfig tsconfig.build.json --clean",
     "test": "vitest run"
   },
   "dependencies": {

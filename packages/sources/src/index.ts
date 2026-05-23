@@ -10,6 +10,7 @@ export * as bybit from './bybit/index.js';
 export * as coinbase from './coinbase/index.js';
 export * as cryptoCom from './crypto-com/index.js';
 export * as evm from './evm/index.js';
+export * as gateio from './gateio/index.js';
 export * as gemini from './gemini/index.js';
 export * as genericCsv from './generic-csv/index.js';
 export * as kraken from './kraken/index.js';

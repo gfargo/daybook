@@ -8,6 +8,7 @@
  *   --source coinbase                 Coinbase API sync
  *   --source coinbase --file <path>   CSV import
  *   --source crypto-com --file <path> CSV import
+ *   --source gateio --file <path>     CSV import
  *   --source gemini --file <path>     CSV import
  *   --source kraken --file <path>     CSV import
  *   --source mexc --file <path>       CSV import
@@ -20,7 +21,7 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { binance, bybit, coinbase, cryptoCom, gemini, genericCsv, kraken, mexc, okx, robinhood } from '@daybook/sources';
+import { binance, bybit, coinbase, cryptoCom, gateio, gemini, genericCsv, kraken, mexc, okx, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
 import { syncCoinbaseApi as syncCoinbaseApiSource } from '@daybook/sources/coinbase';
 import {
@@ -70,6 +71,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'crypto-com':
         await syncCryptoCom(opts, config, repo);
         break;
+      case 'gateio':
+        await syncGateio(opts, config, repo);
+        break;
       case 'gemini':
         await syncGemini(opts, config, repo);
         break;
@@ -105,7 +109,7 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 function isCsvImportSource(source: string): boolean {
-  return ['binance', 'binance-us', 'bybit', 'coinbase', 'crypto-com', 'gemini', 'kraken', 'mexc', 'okx', 'robinhood', 'csv'].includes(source);
+  return ['binance', 'binance-us', 'bybit', 'coinbase', 'crypto-com', 'gateio', 'gemini', 'kraken', 'mexc', 'okx', 'robinhood', 'csv'].includes(source);
 }
 
 function isCsvOnlySync(opts: SyncOptions): boolean {
@@ -124,6 +128,8 @@ function formatCsvSourceName(source: string): string {
       return 'Coinbase';
     case 'crypto-com':
       return 'Crypto.com';
+    case 'gateio':
+      return 'Gate.io';
     case 'gemini':
       return 'Gemini';
     case 'kraken':
@@ -398,6 +404,54 @@ async function syncCryptoCom(
   const dbCounts = repo.countByType({ accountId });
   renderCsvSyncOutput({
     source: 'Crypto.com',
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Gate.io CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncGateio(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('Gate.io sync requires --file <path-to-csv> (use the Billing Details export)');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'gateio')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Gate.io account configured. Add one with `daybook account add <id> --source gateio --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'gateio') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not gateio.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = gateio.parseGateioCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Gate.io',
     accountId,
     totalRows: result.totalRows,
     eventCount: result.events.length,

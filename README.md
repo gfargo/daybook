@@ -6,7 +6,7 @@ Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT license
 
 ## What it does
 
-Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Bybit CSV exports, Crypto.com CSV exports, Gemini CSV exports, MEXC CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Bybit CSV exports, Crypto.com CSV exports, Gate.io CSV exports, Gemini CSV exports, MEXC CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Bybit CSV, Crypto.com CSV, Gemini CSV, Kraken CSV, MEXC CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Bybit CSV, Crypto.com CSV, Gate.io CSV, Gemini CSV, Kraken CSV, MEXC CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -107,6 +107,12 @@ daybook account add main-mexc \
   --source mexc \
   --identifier you@example.com \
   --label "My MEXC"
+
+# Add your Gate.io account
+daybook account add main-gateio \
+  --source gateio \
+  --identifier you@example.com \
+  --label "My Gate.io"
 
 # Add a generic CSV import bucket
 daybook account add csv-imports \
@@ -369,6 +375,18 @@ All Bybit timestamps are interpreted as UTC. Spot symbols like `BTCUSDT` are spl
 - **Withdrawals** with `UID, Status, Time, Crypto, Network, Request Amount, Withdrawal Address, memo, TxID, Trading Fee, Settlement Amount, Withdrawal Descriptions`. Only `Withdrawal Successful` rows produce events; the principal leg uses `Settlement Amount` (post-fee) and the `Trading Fee` is added as a fee leg in the same asset.
 
 All MEXC timestamps are interpreted as UTC. Pair symbols are split on underscore first (`BTC_USDT`), else by peeling a known quote ticker (USDT, USDC, BTC, ETH, fiats) off the end of the concatenated form (`BTCUSDT`).
+
+### Gate.io CSV formats
+
+`--source gateio` consumes Gate.io's unified **Billing Details** ledger — the authoritative export, since the standalone Trade History / Deposit / Withdrawal exports silently drop partial fills. Expected columns:
+
+```csv
+no,time,action_desc,action_data,type,change_amount,amount,total
+```
+
+Multiple rows that share an `action_data` correlation ID belong to the same logical event. A spot trade typically emits a buy-leg row, a sell-leg row, and a fee row (all under one `action_data`); daybook groups them into a single trade event and sums partial-fill rows. The `Order Fullfilled` misspelling in Gate's data is matched literally. Airdrop / HODL Interest / Referral Rebate rows are classified as income; dust swaps collapse into a trade event.
+
+Pair symbols are not present in the Billing Details CSV — daybook infers base and quote from the asset legs in each trade group. Timestamps are interpreted as UTC (`yyyy-MM-dd HH:mm:ss`).
 
 ## CLI Commands
 

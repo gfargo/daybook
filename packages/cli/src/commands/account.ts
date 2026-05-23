@@ -20,6 +20,7 @@ const SUPPORTED_ACCOUNT_SOURCES = [
   'binance',
   'binance-us',
   'bybit',
+  'gateio',
   'gemini',
   'mexc',
   'okx',

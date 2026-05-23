@@ -35,6 +35,7 @@ export type SourceId =
   | 'binance'
   | 'binance-us'
   | 'bybit'
+  | 'gateio'
   | 'gemini'
   | 'kraken'  // v1.1
   | 'mexc'
