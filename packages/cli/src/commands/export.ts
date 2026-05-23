@@ -32,17 +32,13 @@ import {
     LIFO,
     SpecificId,
     LotBook,
-    PriceCache,
-    PricingChain,
-    SourceReportedProvider,
-    CoinGeckoProvider,
-    ManualOverrideProvider,
     parse1099DaCsv,
     reconcile,
     classifyDisposalsForForm8949,
 } from '@daybook/tax';
 import type { CostBasisStrategy, DisposalResult, CheckboxCategory } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
+import { buildPricingChain, hydratePrices } from '../pricing-chain.js';
 import { LotPicker } from './LotPicker.js';
 import type { PendingDisposal } from './LotPicker.js';
 
@@ -409,72 +405,17 @@ export async function exportCommand(
     const isSpecificId = strategyOrNull === null;
 
     // 6. Set up pricing chain (source-reported → CoinGecko → manual override)
-    const cache = new PriceCache(db.raw);
-    const coingeckoApiKeyEnv = config.providers?.coingecko?.apiKeyEnv ?? 'COINGECKO_API_KEY';
-    const coingeckoApiKey = process.env[coingeckoApiKeyEnv];
+    //    and load prior entries so lot history is fully priced.
+    const pricingChain = buildPricingChain(db, config);
 
-    const coingeckoOpts = coingeckoApiKey
-      ? { apiKey: coingeckoApiKey }
-      : {};
-
-    const pricingChain = new PricingChain(
-      {
-        providers: [
-          new SourceReportedProvider(db.raw),
-          new CoinGeckoProvider(coingeckoOpts),
-          new ManualOverrideProvider(db.raw),
-        ],
-      },
-      cache,
-    );
-
-    // Hydrate entries with USD prices before computing tax.
-    // computeTax is synchronous and expects amountUsdAtTime to be set.
-    // We need to resolve prices for each leg that doesn't already have one.
-    for (const entry of entries) {
-      for (const leg of entry.legs) {
-        if (leg.amountUsdAtTime || leg.amountUsdReportedBySource) continue;
-
-        const result = await pricingChain.priceAt(
-          leg.asset,
-          entry.timestamp,
-          leg.contractAddress,
-        );
-        if (result) {
-          const absAmount = new Decimal(leg.amount).abs();
-          const totalUsd = absAmount.mul(new Decimal(result.priceUsd));
-          leg.amountUsdAtTime = totalUsd.toString();
-        }
-      }
-    }
-
-    // Also hydrate entries from before the tax year that may affect lot tracking.
-    // Load all entries up to the end of the tax year for accurate lot history.
     const allEntriesForLots = repo.getLedgerEntries({ limit: 1_000_000 });
     const yearStart = new Date(`${yearNum}-01-01T00:00:00Z`);
     const priorEntries = allEntriesForLots.filter(
       e => e.timestamp < yearStart,
     );
 
-    for (const entry of priorEntries) {
-      for (const leg of entry.legs) {
-        if (leg.amountUsdAtTime || leg.amountUsdReportedBySource) continue;
-
-        const result = await pricingChain.priceAt(
-          leg.asset,
-          entry.timestamp,
-          leg.contractAddress,
-        );
-        if (result) {
-          const absAmount = new Decimal(leg.amount).abs();
-          const totalUsd = absAmount.mul(new Decimal(result.priceUsd));
-          leg.amountUsdAtTime = totalUsd.toString();
-        }
-      }
-    }
-
-    // Combine prior entries + current year entries for full lot history
     const allHydratedEntries = [...priorEntries, ...entries];
+    await hydratePrices(allHydratedEntries, pricingChain);
 
     // 7. Run computeTax() — handle Specific ID specially
     let strategy: CostBasisStrategy;
@@ -616,6 +557,14 @@ export async function exportCommand(
         }
 
         if (opts.perBox) {
+          if (!opts['1099da'] && !form8949Opts.disposalCheckboxes) {
+            console.log(
+              `WARNING: --per-box without --1099da produces one PDF with all disposals ` +
+                `in box ${form8949Opts.checkbox}. Pass --1099da to assign disposals to ` +
+                `boxes A/B/C from a 1099-DA reconciliation.`,
+            );
+            console.log('');
+          }
           // One PDF per checkbox category. Useful for IRS filing where
           // each box category is typically submitted separately.
           const data = buildForm8949Data(taxResult, form8949Opts);

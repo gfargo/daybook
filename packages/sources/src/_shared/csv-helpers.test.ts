@@ -68,12 +68,9 @@ describe('csv-helpers', () => {
       expect(parseAmount('-')).toBeUndefined();
       expect(parseAmount('NaN-ish')).toBeUndefined();
     });
-    it('returns Decimal(0) for "0" by default', () => {
+    it('returns Decimal(0) for explicit "0" (callers distinguish missing from zero)', () => {
       expect(parseAmount('0')?.toString()).toBe('0');
-    });
-    it('with zeroAsUndefined returns undefined for zero', () => {
-      expect(parseAmount('0', { zeroAsUndefined: true })).toBeUndefined();
-      expect(parseAmount('0.0', { zeroAsUndefined: true })).toBeUndefined();
+      expect(parseAmount('0.0')?.toString()).toBe('0');
     });
   });
 

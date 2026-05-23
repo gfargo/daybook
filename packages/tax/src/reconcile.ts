@@ -238,40 +238,59 @@ function parseDate(value: string): Date | null {
  * (`1.234,56`) instead of US (`1,234.56`). European format would be
  * silently misparsed by the US-assuming parser as `1.23456`.
  *
- * Heuristic: if the string has BOTH `.` and `,`, the LAST separator
- * is the decimal point. If only one of `.`/`,` appears and it has
- * exactly 2 digits after it AND no other digits follow, that
- * separator is ambiguous — return `{ ambiguous: true }`.
+ * Heuristic:
+ *   - Both `.` and `,` present: the LAST separator is the decimal point.
+ *   - Multiple `.` and no `,`: European thousands-only (`1.234.567`).
+ *   - Single `,` with exactly 2 digits after it: ambiguous European
+ *     (could be `1.23` or US thousands of `123`).
+ *   - Otherwise: unambiguous US-style.
  */
 function detectMoneyFormat(value: string): {
-  format: 'us' | 'european' | 'unambiguous';
+  format: 'us' | 'european' | 'european-thousands' | 'unambiguous';
   ambiguous: boolean;
 } {
   const cleaned = value.replace(/[$£€¥\s()]/g, '');
   const hasDot = cleaned.includes('.');
   const hasComma = cleaned.includes(',');
+
   if (hasDot && hasComma) {
     const lastDot = cleaned.lastIndexOf('.');
     const lastComma = cleaned.lastIndexOf(',');
     return { format: lastDot > lastComma ? 'us' : 'european', ambiguous: false };
   }
+
   if (hasComma && !hasDot) {
-    // "1,5" → ambiguous (could be European 1.5 or US thousands of 15)
-    // "1,234,567" → US (thousands; no decimal)
-    // "1,23" → European
     const parts = cleaned.split(',');
     const onlyTwoDigitTail = parts.length === 2 && /^\d{2}$/.test(parts[1] ?? '');
     return { format: onlyTwoDigitTail ? 'european' : 'us', ambiguous: onlyTwoDigitTail };
   }
+
+  // Multiple dots with no comma → European thousands without a decimal
+  // ("1.234.567" = 1,234,567).
+  if (hasDot && !hasComma) {
+    const dotCount = (cleaned.match(/\./g) ?? []).length;
+    if (dotCount > 1) {
+      return { format: 'european-thousands', ambiguous: false };
+    }
+  }
+
   return { format: 'unambiguous', ambiguous: false };
+}
+
+/**
+ * Normalize input characters that some non-US sources emit instead of
+ * the ASCII minus / hyphen: Unicode minus (U+2212), en-dash (U+2013),
+ * em-dash (U+2014), and non-breaking hyphen (U+2011).
+ */
+function normalizeUnicode(value: string): string {
+  return value.replace(/[−–—‑]/g, '-');
 }
 
 function parseMoney(value: string, warnings?: string[], rowNumber?: number): string {
   if (!value) return '';
-  const trimmed = value.trim();
+  const trimmed = normalizeUnicode(value.trim());
   const negative = /^\(.*\)$/.test(trimmed);
 
-  // Strip $, parentheses, currency symbols
   const symbolStripped = trimmed
     .replace(/^\((.*)\)$/, '$1')
     .replace(/[$£€¥]/g, '')
@@ -279,7 +298,6 @@ function parseMoney(value: string, warnings?: string[], rowNumber?: number): str
 
   if (symbolStripped === '' || symbolStripped === '-') return '';
 
-  // Detect formatting before stripping separators
   const { format, ambiguous } = detectMoneyFormat(symbolStripped);
 
   let cleaned: string;
@@ -292,6 +310,9 @@ function parseMoney(value: string, warnings?: string[], rowNumber?: number): str
           `decimal comma); pass --money-tolerance generously if this is wrong.`,
       );
     }
+  } else if (format === 'european-thousands') {
+    // 1.234.567 → 1234567
+    cleaned = symbolStripped.replace(/\./g, '');
   } else {
     // US: strip commas
     cleaned = symbolStripped.replace(/,/g, '');

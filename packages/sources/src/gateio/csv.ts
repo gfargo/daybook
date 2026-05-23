@@ -35,6 +35,7 @@ import Decimal from 'decimal.js';
 import type { AssetLeg, RawEvent, RawEventType } from '@daybook/ledger';
 import {
   FIAT_CURRENCIES,
+  assetLeg,
   normalizeAsset,
   parseAmount,
   parseCsvRows,
@@ -205,7 +206,7 @@ function buildEventFromGroup(
       accountId,
       timestamp: earliest,
       type,
-      legs: [{ asset: leg.asset, amount: leg.amount.toFixed() }],
+      legs: [assetLeg(leg.asset, leg.amount)],
       ...(leg.desc ? { notes: leg.desc } : {}),
       raw: row.original,
     });
@@ -240,11 +241,7 @@ function buildTradeEvent(
   const outLegs: AssetLeg[] = [];
   for (const b of buckets.values()) {
     if (b.amount.isZero()) continue;
-    outLegs.push({
-      asset: b.asset,
-      amount: b.amount.toFixed(),
-      ...(b.fee ? { feeFlag: true } : {}),
-    });
+    outLegs.push(assetLeg(b.asset, b.amount, b.fee));
   }
 
   const principal = outLegs.filter((l) => !l.feeFlag);
@@ -279,8 +276,8 @@ function buildDustSwapEvent(
   // Dust swaps act like trades — collapse many tiny debit rows + one
   // credit row into a trade event.
   const outLegs: AssetLeg[] = legs
-    .map((l) => ({ asset: l.asset, amount: l.amount.toFixed() }))
-    .filter((l) => !new Decimal(l.amount).isZero());
+    .filter((l) => !l.amount.isZero())
+    .map((l) => assetLeg(l.asset, l.amount));
   if (outLegs.length < 2) return undefined;
   return {
     id: `gateio:dustswap:${sanitizeNativeId(actionData)}`,

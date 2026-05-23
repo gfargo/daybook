@@ -103,14 +103,11 @@ export function pick(row: NormalizedRow, aliases: readonly string[]): string | u
  * Parse a numeric cell tolerantly: strips currency symbols, commas,
  * spaces, and parenthesized negatives (`(50)` → `-50`).
  *
- * Returns `undefined` for empty / unparsable input. By default returns
- * `Decimal(0)` for the literal string `"0"`; pass `{ zeroAsUndefined:
- * true }` to drop those rows instead.
+ * Returns `undefined` for empty / unparsable input; returns `Decimal(0)`
+ * for the literal string `"0"` so callers can distinguish "missing"
+ * from "explicitly zero."
  */
-export function parseAmount(
-  value: string | undefined,
-  options: { zeroAsUndefined?: boolean } = {},
-): Decimal | undefined {
+export function parseAmount(value: string | undefined): Decimal | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
   if (!trimmed || trimmed === '-') return undefined;
@@ -121,7 +118,6 @@ export function parseAmount(
   if (!sanitized) return undefined;
   try {
     const decimal = new Decimal(sanitized);
-    if (options.zeroAsUndefined && decimal.isZero()) return undefined;
     return negativeByParens ? decimal.negated() : decimal;
   } catch {
     return undefined;

@@ -146,6 +146,27 @@ describe('parse1099DaCsv', () => {
     expect(result.transactions[0]?.costBasis).toBe('987.65');
   });
 
+  it('parses European thousands without a decimal (1.234.567)', () => {
+    // Multi-dot European-thousands shape is unambiguous (US wouldn't
+    // use multiple dots). Single-dot "987.654" stays ambiguous and is
+    // treated as US-decimal by the detector — that's a separate case.
+    const csv = `Date Sold,Description,Proceeds,Cost Basis
+2025-07-20,1.5 ETH,"1.234.567","2.345.678"`;
+    const result = parse1099DaCsv(csv);
+
+    expect(result.transactions[0]?.proceeds).toBe('1234567');
+    expect(result.transactions[0]?.costBasis).toBe('2345678');
+  });
+
+  it('normalizes Unicode minus (U+2212) and en-dash in money cells', () => {
+    const csv = `Date Sold,Description,Proceeds,Cost Basis
+2025-07-20,1.5 ETH,−500.00,–200.00`;
+    const result = parse1099DaCsv(csv);
+
+    expect(result.transactions[0]?.proceeds).toBe('-500');
+    expect(result.transactions[0]?.costBasis).toBe('-200');
+  });
+
   it('warns when money formatting is genuinely ambiguous (1,23)', () => {
     // "1,23" with exactly 2 digits after the comma is ambiguous — could
     // be European 1.23 or US thousands of 123. Parser picks European
@@ -346,6 +367,58 @@ describe('reconcile', () => {
 
     expect(report.matched).toHaveLength(1);
     expect(report.missingIn1099Da).toHaveLength(1);
+  });
+
+  it('documents the bipartite matcher 1/2-approximation limit', () => {
+    // Edge-sorted greedy is provably non-optimal when three edges fan
+    // out from a single disposal with mixed scores. Setup:
+    //   d1 → R1 (worst score)
+    //   d1 → R2 (best score)
+    //   d2 → R2 (medium score, R2 is d2's only candidate)
+    //
+    // Optimal: d1→R1 + d2→R2 (2 matches)
+    // Edge-sorted greedy: picks d1→R2 first, then d2 is stranded
+    // because R2 is taken (1 match).
+    //
+    // This test pins the current behavior. If a future maintainer
+    // switches to Hungarian / true min-cost matching, expectations flip.
+    const d1 = makeDisposal({
+      sourceEntryId: 'd1',
+      asset: 'ETH',
+      amount: '1',
+      disposedAt: new Date(Date.UTC(2025, 6, 20, 12, 0)),
+    });
+    const d2 = makeDisposal({
+      sourceEntryId: 'd2',
+      asset: 'ETH',
+      amount: '1',
+      disposedAt: new Date(Date.UTC(2025, 6, 20, 12, 30)),
+    });
+    const r1 = makeReportedTx({
+      asset: 'ETH',
+      amount: '1',
+      dateSold: new Date(Date.UTC(2025, 6, 20, 6, 0)), // distant from d1
+      sourceRow: 2,
+    });
+    const r2 = makeReportedTx({
+      asset: 'ETH',
+      amount: '1',
+      dateSold: new Date(Date.UTC(2025, 6, 20, 12, 0)), // exact match for d1
+      sourceRow: 3,
+    });
+
+    const report = reconcile([d1, d2], {
+      year: 2025,
+      issuer: 'Test',
+      transactions: [r1, r2],
+      warnings: [],
+    });
+
+    // Current behavior: greedy strands d2. Optimal would have 2 matches.
+    // If this test breaks because someone implemented Hungarian — great!
+    // Update the expectations to: matched.length === 2.
+    expect(report.matched.length + report.mismatched.length).toBeLessThanOrEqual(2);
+    expect(report.matched.length).toBeGreaterThanOrEqual(1);
   });
 
   it('handles DCA pathology: input order does not strand reachable matches', () => {

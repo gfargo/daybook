@@ -14,7 +14,6 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import Decimal from 'decimal.js';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import {
   computeTax,
@@ -24,14 +23,10 @@ import {
   FIFO,
   HIFO,
   LIFO,
-  PriceCache,
-  PricingChain,
-  SourceReportedProvider,
-  CoinGeckoProvider,
-  ManualOverrideProvider,
 } from '@daybook/tax';
 import type { CostBasisStrategy } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
+import { buildPricingChain, hydratePrices } from '../pricing-chain.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Command interface
@@ -123,41 +118,10 @@ export async function reconcileCommand(
     const yearStart = new Date(`${yearNum}-01-01T00:00:00Z`);
     const priorEntries = allEntriesForLots.filter((e) => e.timestamp < yearStart);
 
-    // 4. Set up pricing chain (source-reported → CoinGecko → manual override)
-    const cache = new PriceCache(db.raw);
-    const coingeckoApiKeyEnv =
-      config.providers?.coingecko?.apiKeyEnv ?? 'COINGECKO_API_KEY';
-    const coingeckoApiKey = process.env[coingeckoApiKeyEnv];
-    const coingeckoOpts = coingeckoApiKey ? { apiKey: coingeckoApiKey } : {};
-
-    const pricingChain = new PricingChain(
-      {
-        providers: [
-          new SourceReportedProvider(db.raw),
-          new CoinGeckoProvider(coingeckoOpts),
-          new ManualOverrideProvider(db.raw),
-        ],
-      },
-      cache,
-    );
-
-    for (const entry of [...priorEntries, ...yearEntries]) {
-      for (const leg of entry.legs) {
-        if (leg.amountUsdAtTime || leg.amountUsdReportedBySource) continue;
-        const result = await pricingChain.priceAt(
-          leg.asset,
-          entry.timestamp,
-          leg.contractAddress,
-        );
-        if (result) {
-          const absAmount = new Decimal(leg.amount).abs();
-          const totalUsd = absAmount.mul(new Decimal(result.priceUsd));
-          leg.amountUsdAtTime = totalUsd.toString();
-        }
-      }
-    }
-
+    // 4. Set up pricing chain and hydrate USD prices
+    const pricingChain = buildPricingChain(db, config);
     const allHydratedEntries = [...priorEntries, ...yearEntries];
+    await hydratePrices(allHydratedEntries, pricingChain);
 
     // 5. Compute tax
     const strategy = resolveMethod(opts.method, config.tax.costBasisMethod);

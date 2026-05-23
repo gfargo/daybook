@@ -672,10 +672,12 @@ export async function parseForm8949Pdf(pdf: Uint8Array): Promise<Form8949Data> {
  */
 export async function formatForm8949(
   result: TaxResult,
-  options?: Form8949Options,
+  options?: Form8949Options & RenderOptions,
 ): Promise<Uint8Array> {
   const data = buildForm8949Data(result, options);
-  return renderForm8949Pdf(data);
+  const renderOpts: RenderOptions = {};
+  if (options?.flatten !== undefined) renderOpts.flatten = options.flatten;
+  return renderForm8949Pdf(data, renderOpts);
 }
 
 // ─── Exported constant for testing ───────────────────────────────────────
