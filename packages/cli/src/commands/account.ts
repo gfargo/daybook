@@ -19,6 +19,7 @@ const SUPPORTED_ACCOUNT_SOURCES = [
   'csv',
   'binance',
   'binance-us',
+  'bitget',
   'bybit',
   'gateio',
   'gemini',

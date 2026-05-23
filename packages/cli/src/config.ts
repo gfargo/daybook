@@ -28,6 +28,7 @@ const SourceIdSchema = z.enum([
   'csv',
   'binance',
   'binance-us',
+  'bitget',
   'bybit',
   'gateio',
   'gemini',

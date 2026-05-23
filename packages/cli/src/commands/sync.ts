@@ -4,6 +4,7 @@
  * v1 supports:
  *   --source binance --file <path>    CSV import
  *   --source binance-us --file <path> CSV import
+ *   --source bitget --file <path>     CSV import
  *   --source bybit --file <path>      CSV import
  *   --source coinbase                 Coinbase API sync
  *   --source coinbase --file <path>   CSV import
@@ -21,7 +22,7 @@
 import { readFileSync } from 'node:fs';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { Repo } from '@daybook/ledger';
-import { binance, bybit, coinbase, cryptoCom, gateio, gemini, genericCsv, kraken, mexc, okx, robinhood } from '@daybook/sources';
+import { binance, bitget, bybit, coinbase, cryptoCom, gateio, gemini, genericCsv, kraken, mexc, okx, robinhood } from '@daybook/sources';
 import type { BinanceCsvSource } from '@daybook/sources/binance';
 import { syncCoinbaseApi as syncCoinbaseApiSource } from '@daybook/sources/coinbase';
 import {
@@ -61,6 +62,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'binance':
       case 'binance-us':
         await syncBinance(opts, config, repo, opts.source);
+        break;
+      case 'bitget':
+        await syncBitget(opts, config, repo);
         break;
       case 'bybit':
         await syncBybit(opts, config, repo);
@@ -109,7 +113,7 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
 }
 
 function isCsvImportSource(source: string): boolean {
-  return ['binance', 'binance-us', 'bybit', 'coinbase', 'crypto-com', 'gateio', 'gemini', 'kraken', 'mexc', 'okx', 'robinhood', 'csv'].includes(source);
+  return ['binance', 'binance-us', 'bitget', 'bybit', 'coinbase', 'crypto-com', 'gateio', 'gemini', 'kraken', 'mexc', 'okx', 'robinhood', 'csv'].includes(source);
 }
 
 function isCsvOnlySync(opts: SyncOptions): boolean {
@@ -122,6 +126,8 @@ function formatCsvSourceName(source: string): string {
       return 'Binance';
     case 'binance-us':
       return 'Binance.US';
+    case 'bitget':
+      return 'Bitget';
     case 'bybit':
       return 'Bybit';
     case 'coinbase':
@@ -186,6 +192,54 @@ async function syncBinance(
   const dbCounts = repo.countByType({ accountId });
   renderCsvSyncOutput({
     source: sourceName,
+    accountId,
+    totalRows: result.totalRows,
+    eventCount: result.events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    ...(result.unparsedRowCount > 0 ? { unparsedRows: result.unparsedRowCount } : {}),
+    ...(result.warnings.length > 0 ? { warnings: result.warnings } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Bitget CSV sync
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncBitget(
+  opts: SyncOptions,
+  config: ReturnType<typeof loadConfig>,
+  repo: ReturnType<typeof createRepo>,
+): Promise<void> {
+  if (!opts.file) {
+    throw new Error('Bitget sync requires --file <path-to-csv>');
+  }
+
+  const accountId = opts.account
+    ?? config.accounts.find(a => a.source === 'bitget')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Bitget account configured. Add one with `daybook account add <id> --source bitget --identifier <email>` first.',
+    );
+  }
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(`Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`);
+  }
+  if (account.source !== 'bitget') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not bitget.`,
+    );
+  }
+
+  const csvContents = readFileSync(opts.file, 'utf-8');
+  const result = bitget.parseBitgetCsv(csvContents, { accountId });
+  const insertResult = repo.insertRawEvents(result.events);
+
+  const dbCounts = repo.countByType({ accountId });
+  renderCsvSyncOutput({
+    source: 'Bitget',
     accountId,
     totalRows: result.totalRows,
     eventCount: result.events.length,

@@ -25,7 +25,7 @@ import {
 } from './commands/overrides.js';
 
 const program = new Command();
-const SOURCE_HELP = 'source type: coinbase, kraken, crypto-com, csv, binance, binance-us, bybit, gateio, gemini, mexc, okx, robinhood, eth, polygon, arbitrum, base, optimism, bnb';
+const SOURCE_HELP = 'source type: coinbase, kraken, crypto-com, csv, binance, binance-us, bitget, bybit, gateio, gemini, mexc, okx, robinhood, eth, polygon, arbitrum, base, optimism, bnb';
 
 program
   .name('daybook')
@@ -68,6 +68,7 @@ Examples:
   daybook account add main-bybit --source bybit --identifier you@example.com
   daybook account add main-mexc --source mexc --identifier you@example.com
   daybook account add main-gateio --source gateio --identifier you@example.com
+  daybook account add main-bitget --source bitget --identifier you@example.com
   daybook account add csv-imports --source csv --identifier manual-ledger
   daybook account add base-main --source base --identifier 0xYourAddress --label "Main Base"
   daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"`)
@@ -86,7 +87,7 @@ program
   .command('sync')
   .description('Pull new events from a source and persist them')
   .requiredOption('--source <id>', SOURCE_HELP)
-  .option('--file <path>', 'CSV file path (required for kraken, crypto-com, csv, binance, binance-us, bybit, gateio, gemini, mexc, okx, robinhood; optional for coinbase CSV import)')
+  .option('--file <path>', 'CSV file path (required for kraken, crypto-com, csv, binance, binance-us, bitget, bybit, gateio, gemini, mexc, okx, robinhood; optional for coinbase CSV import)')
   .option('--account <id>', 'target account (defaults to first matching source)')
   .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
   .option('--from <date|block>', 'sync from this date (Coinbase API) or date/block number (EVM)')
@@ -102,6 +103,7 @@ Examples:
   daybook sync --source bybit --file ~/Downloads/bybit-spot-trades.csv
   daybook sync --source mexc --file ~/Downloads/mexc-trade-history.csv
   daybook sync --source gateio --file ~/Downloads/gateio-billing-details.csv
+  daybook sync --source bitget --file ~/Downloads/bitget-spot-history.csv
   daybook sync --source coinbase
   daybook sync --source coinbase --file ~/Downloads/Coinbase.csv
   daybook sync --source kraken --file ~/Downloads/kraken-ledger.csv

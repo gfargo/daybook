@@ -6,6 +6,7 @@
  */
 
 export * as binance from './binance/index.js';
+export * as bitget from './bitget/index.js';
 export * as bybit from './bybit/index.js';
 export * as coinbase from './coinbase/index.js';
 export * as cryptoCom from './crypto-com/index.js';

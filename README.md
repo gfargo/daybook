@@ -6,7 +6,7 @@ Self-hosted crypto wallet auditing and tax reporting. Personal tool, MIT license
 
 ## What it does
 
-Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Bybit CSV exports, Crypto.com CSV exports, Gate.io CSV exports, Gemini CSV exports, MEXC CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
+Pulls transactions from your Coinbase account via API or CSV, Kraken account, Binance/Binance.US CSV exports, Bitget CSV exports, Bybit CSV exports, Crypto.com CSV exports, Gate.io CSV exports, Gemini CSV exports, MEXC CSV exports, Robinhood CSV exports, OKX CSV exports, generic CSV exports, and EVM wallets (Ethereum, Polygon, Base, Arbitrum, Optimism, BNB Chain), normalizes them into a single ledger, classifies the events (transfers, swaps, income, NFT acquisitions/disposals, internal moves), computes cost basis (FIFO/HIFO/LIFO/Specific ID), tracks NFT lots individually, flags wash-sale candidates, and exports tax-ready output (CSV, Form 8949, Schedule D, TXF).
 
 ## Architecture
 
@@ -15,7 +15,7 @@ A pnpm-workspace monorepo, four core packages plus a CLI:
 ```
 packages/
   ledger/       — normalized RawEvent + LedgerEntry types, SQLite storage
-  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Bybit CSV, Crypto.com CSV, Gate.io CSV, Gemini CSV, Kraken CSV, MEXC CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
+  sources/      — adapters: Coinbase API/CSV, Binance CSV, Binance.US CSV, Bitget CSV, Bybit CSV, Crypto.com CSV, Gate.io CSV, Gemini CSV, Kraken CSV, MEXC CSV, OKX CSV, Robinhood CSV, generic CSV, EVM (Alchemy + Etherscan)
   classifier/   — transfer matching, swap reconstruction, NFT classification, classification rules
   tax/          — cost-basis (FIFO/HIFO/LIFO/Specific ID), NFT lot tracking, wash sale, gain/loss, pricing, Form 8949/Schedule D PDF, TXF, CSV exporter
   cli/          — daybook commands (sync, classify, export, compare, overrides)
@@ -113,6 +113,12 @@ daybook account add main-gateio \
   --source gateio \
   --identifier you@example.com \
   --label "My Gate.io"
+
+# Add your Bitget account
+daybook account add main-bitget \
+  --source bitget \
+  --identifier you@example.com \
+  --label "My Bitget"
 
 # Add a generic CSV import bucket
 daybook account add csv-imports \
@@ -387,6 +393,16 @@ no,time,action_desc,action_data,type,change_amount,amount,total
 Multiple rows that share an `action_data` correlation ID belong to the same logical event. A spot trade typically emits a buy-leg row, a sell-leg row, and a fee row (all under one `action_data`); daybook groups them into a single trade event and sums partial-fill rows. The `Order Fullfilled` misspelling in Gate's data is matched literally. Airdrop / HODL Interest / Referral Rebate rows are classified as income; dust swaps collapse into a trade event.
 
 Pair symbols are not present in the Billing Details CSV — daybook infers base and quote from the asset legs in each trade group. Timestamps are interpreted as UTC (`yyyy-MM-dd HH:mm:ss`).
+
+### Bitget CSV formats
+
+`--source bitget` accepts three Bitget export profiles (Bitget has no unified ledger — each file is a separate product silo):
+
+- **Spot trade history** with either the UI-export columns (`Order ID, Trading Pair, Side, Filled Price, Filled Amount, Total, Fee, Fee Currency, Order Time, Order Type`) or the API-style columns (`orderId, symbol, side, priceAvg, size, baseVolume, quoteVolume, fee, feeCurrency, cTime`). Bitget emits one row per fill; daybook groups rows that share an `Order ID` into a single trade event. Chinese side values (`买入` / `卖出`) are recognized.
+- **Deposits** with `Coin, Amount, Network, From Address, TXID, Time, Status`. Only `success` rows produce events.
+- **Withdrawals** with `Coin, Amount, Network, To Address, TXID, Time, Status, Fee`. Only `success` rows; the `Fee` is added as a fee leg in the same asset.
+
+Spot symbols like `BTCUSDT` (or legacy `BTCUSDT_SPBL`) are normalized by stripping any suffix from `_` onward and peeling a known quote ticker (USDT, USDC, BUSD, BTC, ETH, fiats) off the end. Timestamps may be `yyyy-MM-dd HH:mm:ss` UTC (UI export) or 13-digit Unix ms (API export); both forms are accepted.
 
 ## CLI Commands
 

@@ -34,6 +34,7 @@ export type SourceId =
   | 'csv'
   | 'binance'
   | 'binance-us'
+  | 'bitget'
   | 'bybit'
   | 'gateio'
   | 'gemini'
