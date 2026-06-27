@@ -180,6 +180,63 @@ describe('parseBybitCsv', () => {
     ]);
   });
 
+  it('interpolates exec value from filled price × quantity when exec value is missing', () => {
+    const csv = [
+      'Order ID,Transaction ID,Filled Time,Symbol,Side,Filled Price,Quantity,Exec Value,Fee,Fee Currency',
+      // First fill: complete
+      'order-interp,fill-a,2024-01-01 10:00:00,BTCUSDT,Buy,30000,0.02,600,0.000015,BTC',
+      // Second fill: exec value missing but filled price present → 30100 × 0.03 = 903
+      'order-interp,fill-b,2024-01-01 10:00:01,BTCUSDT,Buy,30100,0.03,,0.000023,BTC',
+    ].join('\n');
+
+    const result = parseBybitCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    const [event] = result.events;
+    // base = 0.02 + 0.03 = 0.05; quote = 600 + (30100 × 0.03) = 600 + 903 = 1503
+    expect(event?.legs[0]).toMatchObject({ asset: 'BTC', amount: '0.05' });
+    expect(event?.legs[1]).toMatchObject({ asset: 'USDT', amount: '-1503' });
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('excludes and warns on a fill that has quantity but no exec value and no filled price', () => {
+    const csv = [
+      'Order ID,Transaction ID,Filled Time,Symbol,Side,Filled Price,Quantity,Exec Value,Fee,Fee Currency',
+      // First fill: complete
+      'order-badrow,fill-a,2024-01-01 10:00:00,BTCUSDT,Buy,30000,0.02,600,0.000015,BTC',
+      // Second fill: qty present but neither exec value nor filled price → excluded
+      'order-badrow,fill-b,2024-01-01 10:00:01,BTCUSDT,Buy,,0.03,,0.000023,BTC',
+    ].join('\n');
+
+    const result = parseBybitCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    const [event] = result.events;
+    // Only the good fill counts: base = 0.02, quote = 600
+    expect(event?.legs[0]).toMatchObject({ asset: 'BTC', amount: '0.02' });
+    expect(event?.legs[1]).toMatchObject({ asset: 'USDT', amount: '-600' });
+    // A warning naming the order should be emitted for the excluded fill
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/order-badrow/);
+    expect(result.warnings[0]).toMatch(/fill excluded/);
+  });
+
+  it('skips the whole order (not just the fill) when every fill lacks exec value and price', () => {
+    const csv = [
+      'Order ID,Transaction ID,Filled Time,Symbol,Side,Filled Price,Quantity,Exec Value,Fee,Fee Currency',
+      'order-allbad,fill-x,2024-01-01 10:00:00,BTCUSDT,Buy,,0.05,,0,BTC',
+    ].join('\n');
+
+    const result = parseBybitCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(0);
+    expect(result.unparsedRowCount).toBe(1);
+    // Expects both a fill-level warning and the order-level zero-guard warning
+    expect(result.warnings.length).toBeGreaterThanOrEqual(2);
+    expect(result.warnings.some((w) => w.includes('order-allbad') && w.includes('fill excluded'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('order-allbad') && w.includes('skipped'))).toBe(true);
+  });
+
   it('falls back to peeling the quote off a concatenated symbol', () => {
     const csv = [
       'Order ID,Transaction ID,Filled Time,Symbol,Side,Filled Price,Quantity,Exec Value,Fee,Fee Currency',
