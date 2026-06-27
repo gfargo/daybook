@@ -361,10 +361,10 @@ class RepoImpl implements Repo {
       const insertLeg = this.db.prepare(`
         INSERT INTO ledger_entry_legs
           (entry_id, leg_index, asset, amount, amount_usd_at_time,
-           amount_usd_reported_by_source, fee_flag, contract_address, token_id)
+           amount_usd_reported_by_source, fee_flag, contract_address, token_id, account_id)
         VALUES
           (@entryId, @legIndex, @asset, @amount, @amountUsdAtTime,
-           @amountUsdReportedBySource, @feeFlag, @contractAddress, @tokenId)
+           @amountUsdReportedBySource, @feeFlag, @contractAddress, @tokenId, @accountId)
       `);
 
       const insertRawEventLink = this.db.prepare(`
@@ -393,6 +393,7 @@ class RepoImpl implements Repo {
             feeFlag: leg.feeFlag ? 1 : 0,
             contractAddress: leg.contractAddress ?? null,
             tokenId: leg.tokenId ?? null,
+            accountId: leg.accountId ?? null,
           });
         }
 
@@ -446,7 +447,7 @@ class RepoImpl implements Repo {
 
     const getLegsSql = `
       SELECT leg_index, asset, amount, amount_usd_at_time,
-             amount_usd_reported_by_source, fee_flag, contract_address, token_id
+             amount_usd_reported_by_source, fee_flag, contract_address, token_id, account_id
       FROM ledger_entry_legs
       WHERE entry_id = ?
       ORDER BY leg_index
@@ -477,6 +478,7 @@ class RepoImpl implements Repo {
           ? { contractAddress: l.contract_address }
           : {}),
         ...(l.token_id ? { tokenId: l.token_id } : {}),
+        ...(l.account_id ? { accountId: l.account_id } : {}),
       }));
 
       return {
@@ -635,6 +637,8 @@ interface RawLegRow {
   fee_flag: number;
   contract_address: string | null;
   token_id: string | null;
+  /** Present when querying ledger_entry_legs (after migration 004). Absent for raw_event_legs. */
+  account_id?: string | null;
 }
 
 interface SyncStateRow {
@@ -689,6 +693,7 @@ function rowToEvent(row: RawEventRow, legRows: RawLegRow[]): RawEvent {
     ...(l.fee_flag ? { feeFlag: true } : {}),
     ...(l.contract_address ? { contractAddress: l.contract_address } : {}),
     ...(l.token_id ? { tokenId: l.token_id } : {}),
+    accountId: row.account_id,
   }));
   return {
     id: row.id,

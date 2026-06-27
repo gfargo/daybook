@@ -839,3 +839,183 @@ describe('Feature: nft-cost-basis, Property 8: Airdrop zero cost basis', () => {
     );
   });
 });
+
+// ─── Per-account lot pooling ─────────────────────────────────────────────
+
+describe('computeTax — per-account lot pooling', () => {
+  it('universal mode (default) output is unaffected by accountId on legs', () => {
+    const entries: LedgerEntry[] = [
+      makeEntry({
+        id: 'buy-A',
+        timestamp: new Date('2023-01-01T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '1', amountUsdAtTime: '1000', accountId: 'acct-A' },
+          { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000', accountId: 'acct-A' },
+        ],
+      }),
+      makeEntry({
+        id: 'sell-A',
+        timestamp: new Date('2024-03-15T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '-1', amountUsdAtTime: '2500', accountId: 'acct-A' },
+          { asset: 'USD', amount: '2500', amountUsdAtTime: '2500', accountId: 'acct-A' },
+        ],
+      }),
+    ];
+
+    const withPool = computeTax(entries, { method: FIFO, holdingPeriodDays: 365, year: 2024, lotPool: 'universal' });
+    const withoutPool = computeTax(entries, { method: FIFO, holdingPeriodDays: 365, year: 2024 });
+
+    expect(withPool.disposals[0]!.costBasis).toBe(withoutPool.disposals[0]!.costBasis);
+    expect(withPool.disposals[0]!.gainLoss).toBe(withoutPool.disposals[0]!.gainLoss);
+  });
+
+  it('per-account: selling from acct-A draws only from A lots, not B lots', () => {
+    const entries: LedgerEntry[] = [
+      makeEntry({
+        id: 'buy-A',
+        timestamp: new Date('2023-01-01T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '1', amountUsdAtTime: '1000', accountId: 'acct-A' },
+          { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000', accountId: 'acct-A' },
+        ],
+      }),
+      makeEntry({
+        id: 'buy-B',
+        timestamp: new Date('2023-06-01T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '1', amountUsdAtTime: '2000', accountId: 'acct-B' },
+          { asset: 'USD', amount: '-2000', amountUsdAtTime: '2000', accountId: 'acct-B' },
+        ],
+      }),
+      makeEntry({
+        id: 'sell-A',
+        timestamp: new Date('2024-03-15T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '-1', amountUsdAtTime: '2500', accountId: 'acct-A' },
+          { asset: 'USD', amount: '2500', amountUsdAtTime: '2500', accountId: 'acct-A' },
+        ],
+      }),
+    ];
+
+    const result = computeTax(entries, { method: FIFO, holdingPeriodDays: 365, year: 2024, lotPool: 'per-account' });
+
+    expect(result.disposals).toHaveLength(1);
+    // Sells from acct-A, uses A lot ($1000) not B lot ($2000)
+    expect(result.disposals[0]!.costBasis).toBe('1000');
+    expect(result.disposals[0]!.gainLoss).toBe('1500');
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('per-account: self-transfer A→B moves lots; subsequent sell on B uses A original basis', () => {
+    const entries: LedgerEntry[] = [
+      makeEntry({
+        id: 'buy-A',
+        timestamp: new Date('2023-01-01T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '1', amountUsdAtTime: '1000', accountId: 'acct-A' },
+          { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000', accountId: 'acct-A' },
+        ],
+      }),
+      makeEntry({
+        id: 'xfr-AB',
+        timestamp: new Date('2023-06-01T00:00:00Z'),
+        type: 'transfer_self',
+        legs: [
+          { asset: 'ETH', amount: '-1', accountId: 'acct-A' },
+          { asset: 'ETH', amount: '1', accountId: 'acct-B' },
+        ],
+      }),
+      makeEntry({
+        id: 'sell-B',
+        timestamp: new Date('2024-03-15T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '-1', amountUsdAtTime: '2500', accountId: 'acct-B' },
+          { asset: 'USD', amount: '2500', amountUsdAtTime: '2500', accountId: 'acct-B' },
+        ],
+      }),
+    ];
+
+    const result = computeTax(entries, { method: FIFO, holdingPeriodDays: 365, year: 2024, lotPool: 'per-account' });
+
+    expect(result.disposals).toHaveLength(1);
+    // B pool received A lot via transfer; original $1000 cost basis is preserved
+    expect(result.disposals[0]!.costBasis).toBe('1000');
+    expect(result.disposals[0]!.gainLoss).toBe('1500');
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('per-account: universal mode treats transfer_self as no-op (regression)', () => {
+    const entries: LedgerEntry[] = [
+      makeEntry({
+        id: 'buy',
+        timestamp: new Date('2023-01-01T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+          { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+        ],
+      }),
+      makeEntry({
+        id: 'xfr',
+        timestamp: new Date('2023-06-01T00:00:00Z'),
+        type: 'transfer_self',
+        legs: [
+          { asset: 'ETH', amount: '-1' },
+          { asset: 'ETH', amount: '1' },
+        ],
+      }),
+      makeEntry({
+        id: 'sell',
+        timestamp: new Date('2024-03-15T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '-1', amountUsdAtTime: '2500' },
+          { asset: 'USD', amount: '2500', amountUsdAtTime: '2500' },
+        ],
+      }),
+    ];
+
+    const result = computeTax(entries, { method: FIFO, holdingPeriodDays: 365, year: 2024, lotPool: 'universal' });
+
+    // Universal: transfer_self is skipped; lot stays in pool
+    expect(result.disposals).toHaveLength(1);
+    expect(result.disposals[0]!.costBasis).toBe('1000');
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('per-account: transfer from empty source emits shortfall warning', () => {
+    const entries: LedgerEntry[] = [
+      makeEntry({
+        id: 'xfr',
+        timestamp: new Date('2023-06-01T00:00:00Z'),
+        type: 'transfer_self',
+        legs: [
+          { asset: 'ETH', amount: '-1', accountId: 'acct-A' },
+          { asset: 'ETH', amount: '1', accountId: 'acct-B' },
+        ],
+      }),
+      makeEntry({
+        id: 'sell-B',
+        timestamp: new Date('2024-03-15T00:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '-1', amountUsdAtTime: '2500', accountId: 'acct-B' },
+          { asset: 'USD', amount: '2500', amountUsdAtTime: '2500', accountId: 'acct-B' },
+        ],
+      }),
+    ];
+
+    const result = computeTax(entries, { method: FIFO, holdingPeriodDays: 365, year: 2024, lotPool: 'per-account' });
+
+    expect(result.warnings.some(w => w.includes('self-transfer') && w.includes('shortfall'))).toBe(true);
+    expect(result.disposals).toHaveLength(1);
+  });
+});

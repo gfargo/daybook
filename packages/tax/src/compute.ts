@@ -44,6 +44,16 @@ export interface ComputeTaxConfig {
   holdingPeriodDays: number;
   /** Tax year to compute. */
   year: number;
+  /**
+   * Lot pooling mode.
+   *
+   * `'universal'` (default) — all accounts share one pool per asset, matching
+   * prior behaviour byte-for-byte.
+   *
+   * `'per-account'` — each account has its own pool per asset. Self-transfers
+   * move lots between accounts without creating a disposal event.
+   */
+  lotPool?: 'universal' | 'per-account';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -103,6 +113,35 @@ function unitCost(leg: AssetLeg, totalUsd: string): string {
  */
 function isUsdLeg(leg: AssetLeg): boolean {
   return leg.asset.toUpperCase() === 'USD';
+}
+
+/**
+ * Resolve the account ID for a leg in per-account mode.
+ *
+ * Returns `undefined` in universal mode (the caller passes no account to
+ * LotBook, preserving exact prior behaviour).
+ *
+ * In per-account mode, if the leg has no `accountId` (e.g. legacy rows not
+ * yet reclassified), falls back to `'__unknown__'` and emits a one-per-asset
+ * warning.
+ */
+function resolveAccount(
+  leg: AssetLeg,
+  perAccount: boolean,
+  warnedMissing: Set<string>,
+  warnings: string[],
+): string | undefined {
+  if (!perAccount) return undefined;
+  if (leg.accountId) return leg.accountId;
+  const warnKey = leg.asset;
+  if (!warnedMissing.has(warnKey)) {
+    warnedMissing.add(warnKey);
+    warnings.push(
+      `Per-account pooling active but ${leg.asset} leg has no account ID — ` +
+      `bucketing under '__unknown__'. Run \`daybook classify\` to backfill.`,
+    );
+  }
+  return '__unknown__';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -183,6 +222,7 @@ export function computeTax(
   lotIdCounter = 0;
 
   const { method, holdingPeriodDays, year } = config;
+  const perAccount = config.lotPool === 'per-account';
   const yearStart = new Date(`${year}-01-01T00:00:00Z`);
   const yearEnd = new Date(`${year + 1}-01-01T00:00:00Z`);
 
@@ -198,6 +238,7 @@ export function computeTax(
   const acquisitions: AcquisitionRecord[] = [];
   const warnings: string[] = [];
   const unpricedEvents: string[] = [];
+  const warnedMissing = new Set<string>();
 
   for (const entry of sorted) {
     switch (entry.type) {
@@ -228,6 +269,7 @@ export function computeTax(
             continue;
           }
           const asset = canonicalAsset(leg.asset);
+          const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
           lotBook.acquire({
             id: nextLotId(entry.id, asset),
             asset,
@@ -235,7 +277,7 @@ export function computeTax(
             unitCostUsd: unitCost(leg, usd),
             acquiredAt: entry.timestamp,
             sourceEntryId: entry.id,
-          });
+          }, account);
 
           // Track acquisition for wash-sale pass
           acquisitions.push({ asset, acquiredAt: entry.timestamp });
@@ -245,12 +287,14 @@ export function computeTax(
         for (const leg of outLegs) {
           const absAmount = new Decimal(leg.amount).abs();
           const asset = canonicalAsset(leg.asset);
+          const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
 
           const disposal = lotBook.dispose(
             asset,
             absAmount,
             method,
             entry.timestamp,
+            account,
           );
 
           // Check for insufficient basis
@@ -315,6 +359,7 @@ export function computeTax(
 
           const asset = canonicalAsset(leg.asset);
           const amount = new Decimal(leg.amount).abs();
+          const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
 
           // Acquire lot at FMV
           lotBook.acquire({
@@ -324,7 +369,7 @@ export function computeTax(
             unitCostUsd: unitCost(leg, usd),
             acquiredAt: entry.timestamp,
             sourceEntryId: entry.id,
-          });
+          }, account);
 
           // Track acquisition for wash-sale pass
           acquisitions.push({ asset, acquiredAt: entry.timestamp });
@@ -352,12 +397,14 @@ export function computeTax(
 
           const absAmount = new Decimal(leg.amount).abs();
           const asset = canonicalAsset(leg.asset);
+          const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
 
           const disposal = lotBook.dispose(
             asset,
             absAmount,
             method,
             entry.timestamp,
+            account,
           );
 
           // Check for insufficient basis
@@ -565,8 +612,48 @@ export function computeTax(
         break;
       }
 
+      // ─── Self-transfer (per-account mode only) ───────────────────
+      case 'transfer_self': {
+        if (!perAccount) break;
+
+        const outLegs = entry.legs.filter(
+          (l) => !l.feeFlag && new Decimal(l.amount).isNegative(),
+        );
+        const inLegs = entry.legs.filter(
+          (l) => !l.feeFlag && new Decimal(l.amount).isPositive(),
+        );
+
+        for (const outLeg of outLegs) {
+          const asset = canonicalAsset(outLeg.asset);
+          const amount = new Decimal(outLeg.amount).abs();
+          const fromAccount =
+            resolveAccount(outLeg, perAccount, warnedMissing, warnings) ?? '__unknown__';
+
+          const inLeg = inLegs.find((l) => canonicalAsset(l.asset) === asset);
+          const toAccount = inLeg
+            ? (resolveAccount(inLeg, perAccount, warnedMissing, warnings) ?? '__unknown__')
+            : '__unknown__';
+
+          const { shortfall } = lotBook.transfer(
+            asset,
+            amount,
+            fromAccount,
+            toAccount,
+            method,
+            entry.timestamp,
+          );
+
+          if (shortfall.gt(0)) {
+            warnings.push(
+              `Insufficient lots for self-transfer of ${asset} from account ${fromAccount}: ` +
+              `needed ${amount.toString()}, shortfall ${shortfall.toString()} (entry ${entry.id})`,
+            );
+          }
+        }
+        break;
+      }
+
       // ─── No tax impact ──────────────────────────────────────────
-      case 'transfer_self':
       case 'fiat_in':
       case 'fiat_out':
       case 'nft_event':

@@ -430,6 +430,7 @@ export async function exportCommand(
           method: FIFO,
           holdingPeriodDays: 365,
           year: yearNum,
+          lotPool: config.tax.lotPool,
         });
 
         // Collect all lot IDs that appear in disposal results
@@ -485,6 +486,7 @@ export async function exportCommand(
       method: strategy,
       holdingPeriodDays: 365,
       year: yearNum,
+      lotPool: config.tax.lotPool,
     });
 
     // 8. Resolve format and checkbox options

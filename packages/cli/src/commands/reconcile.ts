@@ -129,6 +129,7 @@ export async function reconcileCommand(
       method: strategy,
       holdingPeriodDays: 365,
       year: yearNum,
+      lotPool: config.tax.lotPool,
     });
 
     // 6. Parse 1099-DA CSV
