@@ -62,8 +62,8 @@ describe('syncCommand generic CSV', () => {
     expect(events[0]!.id).toBe('csv:buy-001');
     expect(events[0]!.type).toBe('trade');
     expect(events[0]!.legs).toEqual([
-      { asset: 'USD', amount: '-1000' },
-      { asset: 'ETH', amount: '0.5' },
+      { asset: 'USD', amount: '-1000', accountId: 'csv-imports' },
+      { asset: 'ETH', amount: '0.5', accountId: 'csv-imports' },
     ]);
 
     expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
@@ -132,8 +132,8 @@ describe('syncCommand Binance CSV', () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('trade');
     expect(events[0]!.legs).toEqual([
-      { asset: 'ETH', amount: '0.5' },
-      { asset: 'USDT', amount: '-1000' },
+      { asset: 'ETH', amount: '0.5', accountId: 'main-binance' },
+      { asset: 'USDT', amount: '-1000', accountId: 'main-binance' },
     ]);
 
     expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
@@ -326,8 +326,8 @@ describe('syncCommand Crypto.com CSV', () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('trade');
     expect(events[0]!.legs).toEqual([
-      { asset: 'BTC', amount: '0.01' },
-      { asset: 'USD', amount: '-420' },
+      { asset: 'BTC', amount: '0.01', accountId: 'main-crypto-com' },
+      { asset: 'USD', amount: '-420', accountId: 'main-crypto-com' },
     ]);
 
     expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
@@ -396,8 +396,8 @@ describe('syncCommand Gemini CSV', () => {
     expect(events[0]!.id).toBe('gemini:gem-buy-1');
     expect(events[0]!.type).toBe('trade');
     expect(events[0]!.legs).toEqual([
-      { asset: 'BTC', amount: '0.01' },
-      { asset: 'USD', amount: '-420' },
+      { asset: 'BTC', amount: '0.01', accountId: 'main-gemini' },
+      { asset: 'USD', amount: '-420', accountId: 'main-gemini' },
     ]);
 
     expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
@@ -466,8 +466,8 @@ describe('syncCommand Robinhood CSV', () => {
     expect(events[0]!.id).toBe('robinhood:rh-buy-1');
     expect(events[0]!.type).toBe('trade');
     expect(events[0]!.legs).toEqual([
-      { asset: 'BTC', amount: '0.01' },
-      { asset: 'USD', amount: '-420' },
+      { asset: 'BTC', amount: '0.01', accountId: 'main-robinhood' },
+      { asset: 'USD', amount: '-420', accountId: 'main-robinhood' },
     ]);
 
     expect(renderCsvSyncOutput).toHaveBeenCalledWith(expect.objectContaining({
