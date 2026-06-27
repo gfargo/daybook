@@ -176,7 +176,7 @@ export function normalizeAsset(value: string | undefined): string | undefined {
  */
 export function normalizeHeader(value: string): string {
   return value
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .replace(/\r$/, '')
     .trim()
     .toLowerCase()

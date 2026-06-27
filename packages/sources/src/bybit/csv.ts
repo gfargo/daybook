@@ -196,12 +196,28 @@ function buildSpotTradeGroup(
     if (sideRaw && !side) side = sideRaw.toLowerCase();
 
     const qty = parseAmount(pick(row, ['quantity', 'qty']));
-    const execValue = parseAmount(pick(row, ['exec value', 'execvalue']));
+    let execValue = parseAmount(pick(row, ['exec value', 'execvalue']));
+    const price = parseAmount(pick(row, ['filled price', 'price']));
     const fee = parseAmount(pick(row, ['fee']));
     const feeCurrency = normalizeAsset(pick(row, ['fee currency', 'feecurrency']));
 
-    if (qty) baseTotal = baseTotal.plus(qty.abs());
-    if (execValue) quoteTotal = quoteTotal.plus(execValue.abs());
+    // Treat zero exec value as missing so the interpolation path fires for "0" rows too
+    if (execValue?.isZero()) execValue = undefined;
+
+    if (qty && !qty.isZero()) {
+      if (!execValue && price && !price.isZero()) {
+        // Interpolate missing exec value (price × qty is an approximation — maker/taker rounding may differ)
+        execValue = price.abs().times(qty.abs());
+      }
+      if (execValue) {
+        baseTotal = baseTotal.plus(qty.abs());
+        quoteTotal = quoteTotal.plus(execValue.abs());
+      } else {
+        warnings.push(
+          `Bybit spot trade order ${orderId} row ${row.rowNumber}: fill has Quantity but no Exec Value or Filled Price — fill excluded`,
+        );
+      }
+    }
     if (fee && feeCurrency) {
       const current = feeBuckets.get(feeCurrency) ?? new Decimal(0);
       feeBuckets.set(feeCurrency, current.plus(fee.abs()));
