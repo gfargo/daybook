@@ -32,7 +32,7 @@
  */
 
 import Decimal from 'decimal.js';
-import type { AssetLeg, RawEvent, RawEventType } from '@daybook/ledger';
+import type { AssetLeg, RawEvent } from '@daybook/ledger';
 import {
   FIAT_CURRENCIES,
   assetLeg,
