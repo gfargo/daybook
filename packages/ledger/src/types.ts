@@ -128,6 +128,12 @@ export interface AssetLeg {
   contractAddress?: string;
   /** For NFTs: the token ID. */
   tokenId?: string;
+  /**
+   * The account this leg originated from (matches an AccountRef.id).
+   * Stamped by the repo when reading ledger entries; propagated through the
+   * classifier via leg spreading. Used by per-account lot pooling.
+   */
+  accountId?: string;
 }
 
 /**

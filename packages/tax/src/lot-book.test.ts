@@ -508,3 +508,166 @@ describe('LotBook', () => {
     });
   });
 });
+
+// ─── Per-account lot pooling ─────────────────────────────────────────────
+
+describe('LotBook — per-account pooling', () => {
+  describe('acquire with account', () => {
+    it('isolates pools by account — getAvailable returns only the specified account lots', () => {
+      const book = new LotBook();
+      book.acquire(makeLot({ id: 'lot-A', asset: 'ETH', amount: '1.0' }), 'acct-A');
+      book.acquire(makeLot({ id: 'lot-B', asset: 'ETH', amount: '2.0' }), 'acct-B');
+
+      expect(book.getAvailable('ETH', 'acct-A')).toHaveLength(1);
+      expect(book.getAvailable('ETH', 'acct-A')[0]!.id).toBe('lot-A');
+
+      expect(book.getAvailable('ETH', 'acct-B')).toHaveLength(1);
+      expect(book.getAvailable('ETH', 'acct-B')[0]!.id).toBe('lot-B');
+    });
+
+    it('universal pool (no account) remains separate from named pools', () => {
+      const book = new LotBook();
+      book.acquire(makeLot({ id: 'lot-univ', asset: 'ETH', amount: '3.0' }));
+      book.acquire(makeLot({ id: 'lot-A', asset: 'ETH', amount: '1.0' }), 'acct-A');
+
+      // Universal pool
+      expect(book.getAvailable('ETH')).toHaveLength(1);
+      expect(book.getAvailable('ETH')[0]!.id).toBe('lot-univ');
+
+      // Per-account pool
+      expect(book.getAvailable('ETH', 'acct-A')).toHaveLength(1);
+      expect(book.getAvailable('ETH', 'acct-A')[0]!.id).toBe('lot-A');
+    });
+  });
+
+  describe('dispose with account', () => {
+    it('dispose from acct-A does not draw from acct-B lots', () => {
+      const book = new LotBook();
+      book.acquire(makeLot({ id: 'lot-A', asset: 'ETH', amount: '1.0', unitCostUsd: '1000' }), 'acct-A');
+      book.acquire(makeLot({ id: 'lot-B', asset: 'ETH', amount: '2.0', unitCostUsd: '2000' }), 'acct-B');
+
+      const result = book.dispose('ETH', new Decimal('0.5'), FIFO, DISPOSE_DATE, 'acct-A');
+
+      expect(result.lotsConsumed[0]!.lotId).toBe('lot-A');
+      expect(result.costBasis).toBe('500'); // 0.5 * 1000
+      expect(book.totalAmount('ETH', 'acct-A').toString()).toBe('0.5');
+      expect(book.totalAmount('ETH', 'acct-B').toString()).toBe('2'); // untouched
+    });
+
+    it('dispose from unknown account returns empty result (no lots)', () => {
+      const book = new LotBook();
+      book.acquire(makeLot({ id: 'lot-A', asset: 'ETH', amount: '1.0' }), 'acct-A');
+
+      const result = book.dispose('ETH', new Decimal('1.0'), FIFO, DISPOSE_DATE, 'acct-B');
+      expect(result.lotsConsumed).toHaveLength(0);
+      expect(result.costBasis).toBe('0');
+    });
+  });
+
+  describe('totalAmount with account', () => {
+    it('returns only the amount for the specified account', () => {
+      const book = new LotBook();
+      book.acquire(makeLot({ id: 'lot-A1', asset: 'ETH', amount: '1.0' }), 'acct-A');
+      book.acquire(makeLot({ id: 'lot-A2', asset: 'ETH', amount: '0.5' }), 'acct-A');
+      book.acquire(makeLot({ id: 'lot-B', asset: 'ETH', amount: '3.0' }), 'acct-B');
+
+      expect(book.totalAmount('ETH', 'acct-A').toString()).toBe('1.5');
+      expect(book.totalAmount('ETH', 'acct-B').toString()).toBe('3');
+    });
+  });
+});
+
+// ─── LotBook.transfer() ───────────────────────────────────────────────────
+
+describe('LotBook.transfer()', () => {
+  it('moves a full lot from source to dest, preserving basis and acquisition date', () => {
+    const book = new LotBook();
+    const acquired = new Date('2023-01-01');
+    book.acquire(makeLot({
+      id: 'lot-1',
+      asset: 'ETH',
+      amount: '1.0',
+      unitCostUsd: '1000',
+      acquiredAt: acquired,
+    }), 'acct-A');
+
+    const { moved, shortfall } = book.transfer(
+      'ETH', new Decimal('1.0'), 'acct-A', 'acct-B', FIFO, DISPOSE_DATE,
+    );
+
+    expect(moved.toString()).toBe('1');
+    expect(shortfall.isZero()).toBe(true);
+
+    expect(book.totalAmount('ETH', 'acct-A').isZero()).toBe(true);
+
+    const destLots = book.getAvailable('ETH', 'acct-B');
+    expect(destLots).toHaveLength(1);
+    expect(destLots[0]!.unitCostUsd).toBe('1000');
+    expect(destLots[0]!.acquiredAt.getTime()).toBe(acquired.getTime());
+  });
+
+  it('partial transfer splits the lot and leaves remainder in source', () => {
+    const book = new LotBook();
+    book.acquire(makeLot({ id: 'lot-1', asset: 'ETH', amount: '2.0', unitCostUsd: '1500' }), 'acct-A');
+
+    const { moved, shortfall } = book.transfer(
+      'ETH', new Decimal('1.0'), 'acct-A', 'acct-B', FIFO, DISPOSE_DATE,
+    );
+
+    expect(moved.toString()).toBe('1');
+    expect(shortfall.isZero()).toBe(true);
+    expect(book.totalAmount('ETH', 'acct-A').toString()).toBe('1');
+    expect(book.totalAmount('ETH', 'acct-B').toString()).toBe('1');
+  });
+
+  it('reports shortfall when source has insufficient lots', () => {
+    const book = new LotBook();
+    book.acquire(makeLot({ id: 'lot-1', asset: 'ETH', amount: '0.5' }), 'acct-A');
+
+    const { moved, shortfall } = book.transfer(
+      'ETH', new Decimal('1.0'), 'acct-A', 'acct-B', FIFO, DISPOSE_DATE,
+    );
+
+    expect(moved.toString()).toBe('0.5');
+    expect(shortfall.toString()).toBe('0.5');
+    expect(book.totalAmount('ETH', 'acct-A').isZero()).toBe(true);
+    expect(book.totalAmount('ETH', 'acct-B').toString()).toBe('0.5');
+  });
+
+  it('returns full shortfall when source pool is empty', () => {
+    const book = new LotBook();
+
+    const { moved, shortfall } = book.transfer(
+      'ETH', new Decimal('1.0'), 'acct-A', 'acct-B', FIFO, DISPOSE_DATE,
+    );
+
+    expect(moved.isZero()).toBe(true);
+    expect(shortfall.toString()).toBe('1');
+  });
+
+  it('is a no-op when fromAccount === toAccount', () => {
+    const book = new LotBook();
+    book.acquire(makeLot({ id: 'lot-1', asset: 'ETH', amount: '1.0' }), 'acct-A');
+
+    const { moved, shortfall } = book.transfer(
+      'ETH', new Decimal('1.0'), 'acct-A', 'acct-A', FIFO, DISPOSE_DATE,
+    );
+
+    // Returns as if everything moved (it stayed in place)
+    expect(moved.toString()).toBe('1');
+    expect(shortfall.isZero()).toBe(true);
+    // Pool unchanged
+    expect(book.totalAmount('ETH', 'acct-A').toString()).toBe('1');
+  });
+
+  it('transferred lots carry unique IDs to avoid lot ID collisions', () => {
+    const book = new LotBook();
+    book.acquire(makeLot({ id: 'lot-orig', asset: 'ETH', amount: '1.0' }), 'acct-A');
+
+    book.transfer('ETH', new Decimal('1.0'), 'acct-A', 'acct-B', FIFO, DISPOSE_DATE);
+
+    const destLots = book.getAvailable('ETH', 'acct-B');
+    expect(destLots[0]!.id).not.toBe('lot-orig');
+    expect(destLots[0]!.id).toMatch(/^lot-orig-xfr/);
+  });
+});

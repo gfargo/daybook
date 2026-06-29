@@ -66,6 +66,7 @@ function applyMigrations(db: DatabaseInstance): void {
     { id: '001_initial', file: 'migrations/001_initial.sql' },
     { id: '002_price_overrides', file: 'migrations/002_price_overrides.sql' },
     { id: '003_sync_state', file: 'migrations/003_sync_state.sql' },
+    { id: '004_ledger_leg_account', file: 'migrations/004_ledger_leg_account.sql' },
     // Future migrations append here.
   ];
 

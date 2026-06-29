@@ -110,6 +110,7 @@ export function compareMethods(
   entries: LedgerEntry[],
   year: number,
   holdingPeriodDays: number = DEFAULT_HOLDING_PERIOD_DAYS,
+  lotPool: 'universal' | 'per-account' = 'universal',
 ): CompareResult {
   const results: Array<{ method: string; result: TaxResult }> = [];
 
@@ -118,6 +119,7 @@ export function compareMethods(
       method: strategy,
       holdingPeriodDays,
       year,
+      lotPool,
     });
     results.push({ method: strategy.name, result });
   }
