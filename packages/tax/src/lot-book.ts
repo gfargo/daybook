@@ -59,6 +59,9 @@ export class LotBook {
   /** Internal pool map. Key is either `asset` (universal) or `asset\0account`. */
   private pools: Map<string, Lot[]> = new Map();
 
+  /** Monotonically-increasing counter for generating unique transferred lot IDs. */
+  private _xfrSeq = 0;
+
   /** Build the pool key for a given asset + optional account. */
   private poolKey(asset: string, account?: string): string {
     return account ? `${asset}\0${account}` : asset;
@@ -179,7 +182,7 @@ export class LotBook {
    * @param fromAccount - Source account ID.
    * @param toAccount - Destination account ID.
    * @param strategy - Which lots to select from the source pool.
-   * @param date - Date of the transfer (used only for lot ordering).
+   * @param date - Date of the transfer (currently unused; reserved for future ordering support).
    * @returns `{ moved, shortfall }` — moved amount and any unmet shortfall.
    */
   transfer(
@@ -201,16 +204,15 @@ export class LotBook {
     const selection = strategy.selectLots(available, amount);
 
     let moved = new Decimal(0);
-    let suffixCounter = 0;
 
     for (const { lot, amount: consumedAmountStr } of selection.consumed) {
       const consumedAmount = new Decimal(consumedAmountStr);
       const lotAmount = new Decimal(lot.amount);
 
-      // Create a new lot in the dest pool with the same basis / acquisition date
-      suffixCounter++;
+      // Create a new lot in the dest pool with the same basis / acquisition date.
+      // Use a class-level sequence so IDs stay unique across repeated transfer() calls.
       const transferredLot: Lot = {
-        id: `${lot.id}-xfr${suffixCounter}`,
+        id: `${lot.id}-xfr${++this._xfrSeq}`,
         asset: lot.asset,
         amount: consumedAmountStr,
         unitCostUsd: lot.unitCostUsd,

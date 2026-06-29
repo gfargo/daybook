@@ -133,7 +133,7 @@ function resolveAccount(
 ): string | undefined {
   if (!perAccount) return undefined;
   if (leg.accountId) return leg.accountId;
-  const warnKey = leg.asset;
+  const warnKey = leg.asset.toUpperCase();
   if (!warnedMissing.has(warnKey)) {
     warnedMissing.add(warnKey);
     warnings.push(
