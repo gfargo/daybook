@@ -204,9 +204,12 @@ function buildSpotTradeGroup(
     // Treat zero exec value as missing so the interpolation path fires for "0" rows too
     if (execValue?.isZero()) execValue = undefined;
 
+    // Guard against baseTotal/quoteTotal desync (see #36):
+    // Only accumulate into both totals when we have a usable exec value.
+    // If Exec Value is missing but Filled Price exists, interpolate.
+    // If neither is available, exclude the fill entirely and warn.
     if (qty && !qty.isZero()) {
       if (!execValue && price && !price.isZero()) {
-        // Interpolate missing exec value (price × qty is an approximation — maker/taker rounding may differ)
         execValue = price.abs().times(qty.abs());
       }
       if (execValue) {
