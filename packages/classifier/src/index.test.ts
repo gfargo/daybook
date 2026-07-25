@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { loadDexRouters, loadBridges } from './index.js';
+import { loadDexRouters, loadBridges, buildCatalog } from './index.js';
 import type { DexRouterEntry, BridgeEntry } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -49,24 +49,12 @@ describe('loadDexRouters', () => {
   });
 
   it('throws on a deliberately duplicated catalog entry', () => {
-    // Simulate loadDexRouters logic with a hand-crafted duplicate
     const data: DexRouterEntry[] = [
       { chain: 1, address: '0xaaaa', protocol: 'TestDEX', version: 'V1' },
       { chain: 1, address: '0xaaaa', protocol: 'TestDEX', version: 'V1 (duplicate)' },
     ];
 
-    const map = new Map<string, DexRouterEntry>();
-    expect(() => {
-      for (const entry of data) {
-        const key = `${entry.chain}:${entry.address.toLowerCase()}`;
-        if (map.has(key)) {
-          throw new Error(
-            `Duplicate DEX router catalog entry: chain ${entry.chain}, address ${entry.address} (${entry.protocol} ${entry.version})`,
-          );
-        }
-        map.set(key, entry);
-      }
-    }).toThrow(/Duplicate DEX router catalog entry/);
+    expect(() => loadDexRouters(data)).toThrow(/Duplicate DEX router catalog entry/);
   });
 
   it('all entries for arbitrum, optimism, base, and bnb use the correct chain IDs', () => {
@@ -120,17 +108,25 @@ describe('loadBridges', () => {
       { chain: 1, address: '0xbbbb', protocol: 'TestBridge', version: 'V1 (duplicate)' },
     ];
 
-    const map = new Map<string, BridgeEntry>();
-    expect(() => {
-      for (const entry of data) {
-        const key = `${entry.chain}:${entry.address.toLowerCase()}`;
-        if (map.has(key)) {
-          throw new Error(
-            `Duplicate bridge catalog entry: chain ${entry.chain}, address ${entry.address} (${entry.protocol} ${entry.version})`,
-          );
-        }
-        map.set(key, entry);
-      }
-    }).toThrow(/Duplicate bridge catalog entry/);
+    expect(() => loadBridges(data)).toThrow(/Duplicate bridge catalog entry/);
+  });
+
+  it('buildCatalog throws with the correct kind label', () => {
+    // Verify buildCatalog itself produces the right message for each kind
+    const dexData: DexRouterEntry[] = [
+      { chain: 1, address: '0xcccc', protocol: 'TestDEX', version: 'V1' },
+      { chain: 1, address: '0xcccc', protocol: 'TestDEX', version: 'V1 (dup)' },
+    ];
+    expect(() => buildCatalog(dexData, 'DEX router')).toThrow(
+      /Duplicate DEX router catalog entry/,
+    );
+
+    const bridgeData: BridgeEntry[] = [
+      { chain: 1, address: '0xdddd', protocol: 'TestBridge', version: 'V1' },
+      { chain: 1, address: '0xdddd', protocol: 'TestBridge', version: 'V1 (dup)' },
+    ];
+    expect(() => buildCatalog(bridgeData, 'bridge')).toThrow(
+      /Duplicate bridge catalog entry/,
+    );
   });
 });

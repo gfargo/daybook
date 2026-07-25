@@ -17,8 +17,25 @@ import type {
     ClassifierContext,
     ClassifierRule,
     ClassifierRuleResult,
+    DexRouterEntry,
 } from '../types.js';
 import { entryId } from '../runner.js';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Return the catalog entry for the DEX router that `evt` interacted with,
+ * or `undefined` if the event has no counterparty, comes from a non-EVM
+ * source, or the address is not in the catalog for that chain.
+ */
+function routerFor(evt: RawEvent, ctx: ClassifierContext): DexRouterEntry | undefined {
+  if (!evt.counterparty) return undefined;
+  const chainId = CHAIN_ID_BY_SOURCE[evt.source];
+  if (chainId === undefined) return undefined;
+  return ctx.dexRouters.get(`${chainId}:${evt.counterparty.toLowerCase()}`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Rule implementation
@@ -48,12 +65,7 @@ export const dexSwapCollapse: ClassifierRule = {
 
     for (const [txHash, group] of byTxHash) {
       // Check if any event's counterparty matches a DEX router on the same chain
-      const hasDexRouter = group.some(evt => {
-        if (!evt.counterparty) return false;
-        const chainId = CHAIN_ID_BY_SOURCE[evt.source];
-        if (chainId === undefined) return false;
-        return context.dexRouters.has(`${chainId}:${evt.counterparty.toLowerCase()}`);
-      });
+      const hasDexRouter = group.some(evt => routerFor(evt, context) !== undefined);
 
       if (!hasDexRouter) continue;
       if (group.length < 2) continue;
@@ -79,20 +91,8 @@ export const dexSwapCollapse: ClassifierRule = {
       }
 
       // Find the DEX router protocol for the reason string (chain-scoped lookup)
-      const routerEvt = group.find(e => {
-        if (!e.counterparty) return false;
-        const chainId = CHAIN_ID_BY_SOURCE[e.source];
-        if (chainId === undefined) return false;
-        return context.dexRouters.has(`${chainId}:${e.counterparty.toLowerCase()}`);
-      });
-      const router = routerEvt?.counterparty
-        ? (() => {
-            const chainId = CHAIN_ID_BY_SOURCE[routerEvt.source];
-            return chainId !== undefined
-              ? context.dexRouters.get(`${chainId}:${routerEvt.counterparty!.toLowerCase()}`)
-              : undefined;
-          })()
-        : undefined;
+      const routerEvt = group.find(e => routerFor(e, context) !== undefined);
+      const router = routerEvt ? routerFor(routerEvt, context) : undefined;
       const routerLabel = router
         ? `${router.protocol} ${router.version}`
         : 'unknown DEX';

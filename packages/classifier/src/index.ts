@@ -62,14 +62,22 @@ import type { DexRouterEntry, BridgeEntry } from './types.js';
 import dexRoutersData from './dex-routers.json' with { type: 'json' };
 import bridgesData from './bridges.json' with { type: 'json' };
 
-/** Load the DEX router catalog as a Map keyed by `${chainId}:${lowercasedAddress}`. */
-export function loadDexRouters(): Map<string, DexRouterEntry> {
-  const map = new Map<string, DexRouterEntry>();
-  for (const entry of dexRoutersData as DexRouterEntry[]) {
+/**
+ * Build a `${chainId}:${lowercasedAddress}`-keyed catalog Map from an array
+ * of entries. Throws a descriptive error if any two entries share the same key.
+ *
+ * Exported so tests can feed synthetic duplicate arrays through the real
+ * collision-detection path rather than reimplementing the logic inline.
+ */
+export function buildCatalog<
+  T extends { chain: number; address: string; protocol: string; version: string },
+>(rows: readonly T[], kind: 'DEX router' | 'bridge'): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const entry of rows) {
     const key = `${entry.chain}:${entry.address.toLowerCase()}`;
     if (map.has(key)) {
       throw new Error(
-        `Duplicate DEX router catalog entry: chain ${entry.chain}, address ${entry.address} (${entry.protocol} ${entry.version})`,
+        `Duplicate ${kind} catalog entry: chain ${entry.chain}, address ${entry.address} (${entry.protocol} ${entry.version})`,
       );
     }
     map.set(key, entry);
@@ -77,17 +85,16 @@ export function loadDexRouters(): Map<string, DexRouterEntry> {
   return map;
 }
 
+/** Load the DEX router catalog as a Map keyed by `${chainId}:${lowercasedAddress}`. */
+export function loadDexRouters(
+  data: readonly DexRouterEntry[] = dexRoutersData as DexRouterEntry[],
+): Map<string, DexRouterEntry> {
+  return buildCatalog(data, 'DEX router');
+}
+
 /** Load the bridge catalog as a Map keyed by `${chainId}:${lowercasedAddress}`. */
-export function loadBridges(): Map<string, BridgeEntry> {
-  const map = new Map<string, BridgeEntry>();
-  for (const entry of bridgesData as BridgeEntry[]) {
-    const key = `${entry.chain}:${entry.address.toLowerCase()}`;
-    if (map.has(key)) {
-      throw new Error(
-        `Duplicate bridge catalog entry: chain ${entry.chain}, address ${entry.address} (${entry.protocol} ${entry.version})`,
-      );
-    }
-    map.set(key, entry);
-  }
-  return map;
+export function loadBridges(
+  data: readonly BridgeEntry[] = bridgesData as BridgeEntry[],
+): Map<string, BridgeEntry> {
+  return buildCatalog(data, 'bridge');
 }

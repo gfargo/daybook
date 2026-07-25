@@ -38,8 +38,13 @@ export type ChainId = number;
 /**
  * Map daybook source IDs to their canonical chain IDs.
  * Sourced from @daybook/ledger to avoid duplication.
+ *
+ * Typed as `Readonly<Partial<Record<SourceId, ChainId>>>` to preserve
+ * undefined-safety: non-EVM sources (coinbase, kraken, etc.) are absent
+ * and consumers must guard on undefined.
  */
-export const CHAIN_ID_BY_SOURCE: Record<string, ChainId> = _CHAIN_ID_BY_SOURCE as Record<string, ChainId>;
+export const CHAIN_ID_BY_SOURCE: Readonly<Partial<Record<SourceId, ChainId>>> =
+  _CHAIN_ID_BY_SOURCE;
 
 /** Reverse map: chain ID → daybook source ID. */
 export const SOURCE_BY_CHAIN_ID: Record<ChainId, SourceId> = {
