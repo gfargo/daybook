@@ -54,6 +54,39 @@ export interface AcquisitionRecord {
   acquiredAt: Date;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Index builder
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a lookup index from acquisition records.
+ *
+ * Groups UTC calendar day numbers by asset symbol so that wash-sale
+ * window probes are O(1) per day rather than O(acquisitions) per
+ * disposal.
+ *
+ * @param acquisitions - All acquisition records to index.
+ * @returns Map from asset symbol → Set of UTC calendar day numbers.
+ */
+function buildAcquisitionIndex(
+  acquisitions: ReadonlyArray<AcquisitionRecord>,
+): Map<string, Set<number>> {
+  const index = new Map<string, Set<number>>();
+  for (const a of acquisitions) {
+    let days = index.get(a.asset);
+    if (days === undefined) {
+      days = new Set<number>();
+      index.set(a.asset, days);
+    }
+    days.add(utcDay(a.acquiredAt));
+  }
+  return index;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Wash sale pass
+// ─────────────────────────────────────────────────────────────────────────
+
 /**
  * Apply wash-sale flags to all disposals.
  *
@@ -61,6 +94,11 @@ export interface AcquisitionRecord {
  * whether the same asset was acquired within ±30 calendar days
  * of the disposal date. Disposals with `gainLoss >= 0` are always
  * flagged `false` without performing any lookup.
+ *
+ * Complexity: O(A + D × W) where A = acquisitions, D = disposals,
+ * W = window width (61). Builds an acquisition index once, then
+ * probes 61 calendar days per loss disposal instead of scanning the
+ * full acquisition list each time.
  *
  * @param disposals - The disposal results to flag.
  * @param acquisitions - All acquisition records to check against.
@@ -70,6 +108,9 @@ export function applyWashSaleFlags(
   disposals: DisposalResult[],
   acquisitions: ReadonlyArray<AcquisitionRecord>,
 ): DisposalResult[] {
+  // Build the per-asset day index once — O(A)
+  const index = buildAcquisitionIndex(acquisitions);
+
   return disposals.map((d) => {
     // Gains and break-even are never wash-sale candidates
     if (new Decimal(d.gainLoss).gte(0)) {
@@ -77,12 +118,21 @@ export function applyWashSaleFlags(
     }
 
     const disposalDay = utcDay(d.disposedAt);
+    const days = index.get(d.asset);
 
-    const flag = acquisitions.some(
-      (a) =>
-        a.asset === d.asset &&
-        Math.abs(utcDay(a.acquiredAt) - disposalDay) <= WASH_SALE_WINDOW_DAYS,
-    );
+    // Asset never acquired → no wash-sale candidate
+    if (days === undefined) {
+      return { ...d, washSaleFlag: false };
+    }
+
+    // Probe the ±30-day window: 61 constant-time Set.has() calls — O(W)
+    let flag = false;
+    for (let delta = -WASH_SALE_WINDOW_DAYS; delta <= WASH_SALE_WINDOW_DAYS; delta++) {
+      if (days.has(disposalDay + delta)) {
+        flag = true;
+        break;
+      }
+    }
 
     return { ...d, washSaleFlag: flag };
   });

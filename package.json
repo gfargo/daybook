@@ -16,6 +16,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "vitest run",
+    "bench": "vitest bench",
     "coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "eslint packages",
