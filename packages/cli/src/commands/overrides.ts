@@ -1,10 +1,12 @@
 /**
- * `daybook overrides` — manage manual price overrides.
+ * `daybook overrides` — manage manual price overrides and classifier overrides.
  *
  * Subcommands:
  *   set <asset> <date> <price>  — insert or update a price override
  *   list                        — display all overrides in a formatted table
  *   remove <id>                 — delete an override by ID
+ *   prune                       — remove stale classifier overrides (those whose
+ *                                 rawEventIds no longer exist in the database)
  *
  * Price overrides are the last-resort pricing source for tokens that no
  * automated API covers. They live in the `price_overrides` SQLite table
@@ -33,6 +35,11 @@ export interface OverridesListOptions {
 
 export interface OverridesRemoveOptions {
   config?: string;
+}
+
+export interface OverridesPruneOptions {
+  config?: string;
+  dryRun?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -186,6 +193,70 @@ export async function overridesRemoveCommand(
       console.log(`Removed price override: ${id}`);
     } else {
       console.log(`No price override found with ID: ${id}`);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Handler for `daybook overrides prune`.
+ *
+ * Removes classifier overrides whose rawEventIds reference raw events that
+ * no longer exist in the database (stale overrides). These cause FOREIGN KEY
+ * constraint failures if `classify` is run with them.
+ *
+ * With `--dry-run`: prints which overrides would be removed without deleting.
+ */
+export async function overridesPruneCommand(
+  opts: OverridesPruneOptions,
+): Promise<void> {
+  const config = loadConfig(opts.config);
+  const db = openDatabase(expandPath(config.dbPath));
+  const repo = createRepo(db.raw);
+
+  try {
+    const overrides = repo.getClassifierOverrides();
+
+    if (overrides.length === 0) {
+      console.log('No classifier overrides found. Nothing to prune.');
+      return;
+    }
+
+    const stale: { id: string; missingIds: string[] }[] = [];
+
+    for (const override of overrides) {
+      const missingIds = override.rawEventIds.filter(
+        rid => repo.getRawEventById(rid) === null,
+      );
+      if (missingIds.length > 0) {
+        stale.push({ id: override.id, missingIds });
+      }
+    }
+
+    if (stale.length === 0) {
+      console.log(
+        `All ${overrides.length} classifier override(s) are valid. Nothing to prune.`,
+      );
+      return;
+    }
+
+    if (opts.dryRun) {
+      console.log(`Would remove ${stale.length} stale classifier override(s):`);
+      for (const { id, missingIds } of stale) {
+        console.log(`  ${id} — missing event(s): ${missingIds.join(', ')}`);
+      }
+      console.log('\nRe-run without --dry-run to apply.');
+      return;
+    }
+
+    for (const { id } of stale) {
+      repo.deleteClassifierOverride(id);
+    }
+
+    console.log(`Removed ${stale.length} stale classifier override(s):`);
+    for (const { id, missingIds } of stale) {
+      console.log(`  ${id} — was missing event(s): ${missingIds.join(', ')}`);
     }
   } finally {
     db.close();
