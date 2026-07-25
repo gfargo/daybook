@@ -212,7 +212,7 @@ describe('DEX swap collapse', () => {
 
     const ctx = makeContext({
       dexRouters: new Map([
-        [uniswapRouter.toLowerCase(), {
+        [`1:${uniswapRouter.toLowerCase()}`, {
           chain: 1,
           address: uniswapRouter,
           protocol: 'Uniswap',
@@ -261,6 +261,103 @@ describe('DEX swap collapse', () => {
       e => e.type === 'trade' && e.rawEventIds.length === 2,
     );
     expect(trades).toHaveLength(0);
+  });
+
+  it('does not collapse when the same router address exists only for a different chain', () => {
+    // Uniswap V3 SwapRouter is deployed at the same address on Ethereum and Polygon.
+    // Catalog has chain 1 entry only. Event source is 'base' (chain 8453) → no match.
+    const routerAddress = '0xe592427a0aece92de3edee1f18e0157c05861564';
+    const txHash = '0xcross-chain-no-match';
+
+    const baseOut: RawEvent = makeEvent({
+      id: 'base:swap-out',
+      source: 'base',
+      accountId: 'base-main',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_out',
+      legs: [{ asset: 'ETH', amount: '-0.1' }],
+      txHash,
+      counterparty: routerAddress,
+    });
+
+    const baseIn: RawEvent = makeEvent({
+      id: 'base:swap-in',
+      source: 'base',
+      accountId: 'base-main',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'USDC', amount: '200' }],
+      txHash,
+      counterparty: routerAddress,
+    });
+
+    // Only the chain-1 entry is in the catalog — chain 8453 (base) is absent
+    const ctx = makeContext({
+      dexRouters: new Map([
+        [`1:${routerAddress.toLowerCase()}`, {
+          chain: 1,
+          address: routerAddress,
+          protocol: 'Uniswap',
+          version: 'V3 SwapRouter',
+        }],
+      ]),
+    });
+
+    const result = classify([baseOut, baseIn], [], ctx, DEFAULT_RULES);
+
+    // Rule 04 must NOT collapse — the catalog entry is for chain 1, event is on Base
+    const trades = result.entries.filter(
+      e => e.type === 'trade' && e.rawEventIds.length === 2,
+    );
+    expect(trades).toHaveLength(0);
+  });
+
+  it('collapses a Polygon swap when the catalog has a Polygon (chain 137) entry', () => {
+    const routerAddress = '0xe592427a0aece92de3edee1f18e0157c05861564';
+    const txHash = '0xpolygon-swap-tx';
+
+    const polyOut: RawEvent = makeEvent({
+      id: 'polygon:swap-out',
+      source: 'polygon',
+      accountId: 'polygon-main',
+      timestamp: new Date('2024-02-01T12:00:00Z'),
+      type: 'crypto_out',
+      legs: [{ asset: 'MATIC', amount: '-100' }],
+      txHash,
+      counterparty: routerAddress,
+    });
+
+    const polyIn: RawEvent = makeEvent({
+      id: 'polygon:swap-in',
+      source: 'polygon',
+      accountId: 'polygon-main',
+      timestamp: new Date('2024-02-01T12:00:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'USDC', amount: '90' }],
+      txHash,
+      counterparty: routerAddress,
+    });
+
+    // Catalog has the Polygon (chain 137) entry
+    const ctx = makeContext({
+      dexRouters: new Map([
+        [`137:${routerAddress.toLowerCase()}`, {
+          chain: 137,
+          address: routerAddress,
+          protocol: 'Uniswap',
+          version: 'V3 SwapRouter02 (Polygon)',
+        }],
+      ]),
+    });
+
+    const result = classify([polyOut, polyIn], [], ctx, DEFAULT_RULES);
+
+    const trades = result.entries.filter(e => e.type === 'trade');
+    expect(trades).toHaveLength(1);
+    expect(trades[0]!.rawEventIds).toContain('polygon:swap-out');
+    expect(trades[0]!.rawEventIds).toContain('polygon:swap-in');
+    expect(trades[0]!.reason).toContain('Uniswap');
+    expect(trades[0]!.reason).toContain('Polygon');
   });
 });
 

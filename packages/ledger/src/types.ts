@@ -52,6 +52,28 @@ export type SourceId =
   | 'solana'
   | 'bitcoin';
 
+/**
+ * Map daybook EVM source IDs to their canonical EIP-155 chain IDs.
+ *
+ *   1     = Ethereum mainnet
+ *   137   = Polygon PoS
+ *   42161 = Arbitrum One
+ *   10    = Optimism
+ *   8453  = Base
+ *   56    = BNB Smart Chain
+ *
+ * Non-EVM sources (coinbase, kraken, csv, etc.) are not present here.
+ * Consumers should treat `undefined` as "not an EVM chain."
+ */
+export const CHAIN_ID_BY_SOURCE: Readonly<Partial<Record<SourceId, number>>> = {
+  eth: 1,
+  polygon: 137,
+  arbitrum: 42161,
+  optimism: 10,
+  base: 8453,
+  bnb: 56,
+} as const;
+
 /** Identifies a specific account belonging to the user. */
 export interface AccountRef {
   /** Stable label, e.g. "main-coinbase" or "polygon-0x1296". User-defined. */

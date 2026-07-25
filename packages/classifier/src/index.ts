@@ -62,20 +62,32 @@ import type { DexRouterEntry, BridgeEntry } from './types.js';
 import dexRoutersData from './dex-routers.json' with { type: 'json' };
 import bridgesData from './bridges.json' with { type: 'json' };
 
-/** Load the DEX router catalog as a Map keyed by lowercased address. */
+/** Load the DEX router catalog as a Map keyed by `${chainId}:${lowercasedAddress}`. */
 export function loadDexRouters(): Map<string, DexRouterEntry> {
   const map = new Map<string, DexRouterEntry>();
   for (const entry of dexRoutersData as DexRouterEntry[]) {
-    map.set(entry.address.toLowerCase(), entry);
+    const key = `${entry.chain}:${entry.address.toLowerCase()}`;
+    if (map.has(key)) {
+      throw new Error(
+        `Duplicate DEX router catalog entry: chain ${entry.chain}, address ${entry.address} (${entry.protocol} ${entry.version})`,
+      );
+    }
+    map.set(key, entry);
   }
   return map;
 }
 
-/** Load the bridge catalog as a Map keyed by lowercased address. */
+/** Load the bridge catalog as a Map keyed by `${chainId}:${lowercasedAddress}`. */
 export function loadBridges(): Map<string, BridgeEntry> {
   const map = new Map<string, BridgeEntry>();
   for (const entry of bridgesData as BridgeEntry[]) {
-    map.set(entry.address.toLowerCase(), entry);
+    const key = `${entry.chain}:${entry.address.toLowerCase()}`;
+    if (map.has(key)) {
+      throw new Error(
+        `Duplicate bridge catalog entry: chain ${entry.chain}, address ${entry.address} (${entry.protocol} ${entry.version})`,
+      );
+    }
+    map.set(key, entry);
   }
   return map;
 }

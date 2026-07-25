@@ -12,6 +12,7 @@
  */
 
 import type { AssetLeg, LedgerEntry, RawEvent } from '@daybook/ledger';
+import { CHAIN_ID_BY_SOURCE } from '@daybook/ledger';
 import type {
     ClassifierContext,
     ClassifierRule,
@@ -46,10 +47,12 @@ export const dexSwapCollapse: ClassifierRule = {
     }
 
     for (const [txHash, group] of byTxHash) {
-      // Check if any event's counterparty matches a DEX router
+      // Check if any event's counterparty matches a DEX router on the same chain
       const hasDexRouter = group.some(evt => {
         if (!evt.counterparty) return false;
-        return context.dexRouters.has(evt.counterparty.toLowerCase());
+        const chainId = CHAIN_ID_BY_SOURCE[evt.source];
+        if (chainId === undefined) return false;
+        return context.dexRouters.has(`${chainId}:${evt.counterparty.toLowerCase()}`);
       });
 
       if (!hasDexRouter) continue;
@@ -75,12 +78,20 @@ export const dexSwapCollapse: ClassifierRule = {
         }
       }
 
-      // Find the DEX router protocol for the reason string
-      const routerEvt = group.find(
-        e => e.counterparty && context.dexRouters.has(e.counterparty.toLowerCase()),
-      );
+      // Find the DEX router protocol for the reason string (chain-scoped lookup)
+      const routerEvt = group.find(e => {
+        if (!e.counterparty) return false;
+        const chainId = CHAIN_ID_BY_SOURCE[e.source];
+        if (chainId === undefined) return false;
+        return context.dexRouters.has(`${chainId}:${e.counterparty.toLowerCase()}`);
+      });
       const router = routerEvt?.counterparty
-        ? context.dexRouters.get(routerEvt.counterparty.toLowerCase())
+        ? (() => {
+            const chainId = CHAIN_ID_BY_SOURCE[routerEvt.source];
+            return chainId !== undefined
+              ? context.dexRouters.get(`${chainId}:${routerEvt.counterparty!.toLowerCase()}`)
+              : undefined;
+          })()
         : undefined;
       const routerLabel = router
         ? `${router.protocol} ${router.version}`

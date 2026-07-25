@@ -2,5 +2,14 @@
   { "chain": 1, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2" },
   { "chain": 1, "address": "0xa0c68c638235ee32657e8f720a23cec1bfc6c9a8", "protocol": "Polygon", "version": "PoS Bridge (ERC20)" },
   { "chain": 1, "address": "0x401f6c983ea34274ec46f84d70b31c151321188b", "protocol": "Polygon", "version": "PoS Bridge (Ether)" },
-  { "chain": 137, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2 (Polygon)" }
+  { "chain": 1, "address": "0x3154cf16ccdb4c6d922629664174b904d80f2c35", "protocol": "Base", "version": "Bridge (Ethereum)" },
+  { "chain": 1, "address": "0x99c9fc46f92e8a1c0dec1b1747d010903e884be1", "protocol": "Optimism", "version": "L1StandardBridge" },
+  { "chain": 1, "address": "0x8315177ab297ba92a06054ce80a67ed4dbd7ed3a", "protocol": "Arbitrum", "version": "Delayed Inbox" },
+  { "chain": 137, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2 (Polygon)" },
+  { "chain": 42161, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2 (Arbitrum)" },
+  { "chain": 10, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2 (Optimism)" },
+  { "chain": 10, "address": "0x4200000000000000000000000000000000000010", "protocol": "Optimism", "version": "L2StandardBridge" },
+  { "chain": 8453, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2 (Base)" },
+  { "chain": 8453, "address": "0x4200000000000000000000000000000000000010", "protocol": "Base", "version": "L2StandardBridge" },
+  { "chain": 56, "address": "0x5427fefa711eff984124bfbb1ab6fbf5e3da1820", "protocol": "Celer", "version": "cBridge V2 (BNB)" }
 ]
