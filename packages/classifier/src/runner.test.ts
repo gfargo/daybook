@@ -302,6 +302,63 @@ describe('cross-source self-transfer matching', () => {
     expect(selfTransfers[0]!.rawEventIds).toContain('eth:in-fee');
   });
 
+  it('does not pair an out whose same-asset fee leg consumes the entire principal (net ≤ 0)', () => {
+    // Principal 0.0005 BTC, fee 0.0005 BTC → net = 0.  Should NOT produce a transfer_self.
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-zero-net',
+      source: 'coinbase',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_out',
+      legs: [
+        { asset: 'BTC', amount: '-0.0005' },
+        { asset: 'BTC', amount: '-0.0005', feeFlag: true },
+      ],
+    });
+
+    const inEvt: RawEvent = makeEvent({
+      id: 'eth:in-zero-net',
+      source: 'eth',
+      timestamp: new Date('2024-01-10T08:03:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '0.0005' }],
+    });
+
+    const ctx = makeContext();
+    const result = classify([out, inEvt], [], ctx, DEFAULT_RULES);
+
+    // Net principal of out is 0 — must not be paired
+    const selfTransfers = result.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers).toHaveLength(0);
+  });
+
+  it('does not pair an out whose same-asset fee exceeds the principal (net < 0)', () => {
+    // Principal 0.0003 BTC, fee 0.0005 BTC → net = -0.0002.  Must not pair.
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-neg-net',
+      source: 'coinbase',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_out',
+      legs: [
+        { asset: 'BTC', amount: '-0.0003' },
+        { asset: 'BTC', amount: '-0.0005', feeFlag: true },
+      ],
+    });
+
+    const inEvt: RawEvent = makeEvent({
+      id: 'eth:in-neg-net',
+      source: 'eth',
+      timestamp: new Date('2024-01-10T08:03:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '0.0003' }],
+    });
+
+    const ctx = makeContext();
+    const result = classify([out, inEvt], [], ctx, DEFAULT_RULES);
+
+    const selfTransfers = result.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers).toHaveLength(0);
+  });
+
   it('does not subtract cross-asset gas when comparing amounts', () => {
     // ETH out with ETH gas fee — amounts match without issue (gas same asset)
     // But a BTC out with ETH gas fee: the ETH gas should NOT be subtracted from the BTC principal.
@@ -340,6 +397,10 @@ describe('cross-source self-transfer matching', () => {
     const T2 = new Date('2024-03-02T14:00:00Z');
     const T3 = new Date('2024-03-03T18:00:00Z');
 
+    // Amount diffs relative to the out leg:
+    //   Pair A: |1.0 - 0.997| / 1.0   = 0.3%  — well within default 1% tolerance
+    //   Pair B: |0.5 - 0.4975| / 0.5  = 0.5%  — within default 1% tolerance
+    //   Pair C: |0.3 - 0.299| / 0.3   ≈ 0.33% — within default 1% tolerance
     const events: RawEvent[] = [
       makeEvent({ id: 'cb:out-A', source: 'coinbase', timestamp: T1, type: 'crypto_out', legs: [{ asset: 'ETH', amount: '-1.0' }] }),
       makeEvent({ id: 'eth:in-A', source: 'eth',      timestamp: new Date(T1.getTime() + 90_000), type: 'crypto_in',  legs: [{ asset: 'ETH', amount: '0.997' }] }),
@@ -351,7 +412,7 @@ describe('cross-source self-transfer matching', () => {
       makeEvent({ id: 'eth:in-C', source: 'eth',      timestamp: new Date(T3.getTime() + 60_000),  type: 'crypto_in',  legs: [{ asset: 'ETH', amount: '0.299' }] }),
     ];
 
-    const ctx = makeContext({ crossSourceMatchWindowSeconds: 1800 });
+    const ctx = makeContext({ crossSourceMatchWindowSeconds: 1800, crossSourceAmountTolerance: 0.01 });
 
     const classify1 = classify(events, [], ctx, DEFAULT_RULES);
     // Reverse the entire input
@@ -379,6 +440,19 @@ describe('cross-source self-transfer matching', () => {
       expect(r3[i]!.type).toBe(r1[i]!.type);
       expect(r2[i]!.rawEventIds.sort()).toEqual(r1[i]!.rawEventIds.sort());
       expect(r3[i]!.rawEventIds.sort()).toEqual(r1[i]!.rawEventIds.sort());
+    }
+
+    // Explicit tolerance check: each in-leg is within the configured 1% of its out-leg.
+    // This documents that the fixture's pairability is intentional, not incidental.
+    // Pair A: diff = |1.0 - 0.997| / 1.0 = 0.3%; Pair B: 0.5%; Pair C: ~0.33% — all < 1%.
+    const pairAmounts: Array<{ out: number; in: number }> = [
+      { out: 1.0, in: 0.997 },
+      { out: 0.5, in: 0.4975 },
+      { out: 0.3, in: 0.299 },
+    ];
+    for (const { out: outAmt, in: inAmt } of pairAmounts) {
+      const relDiff = Math.abs(outAmt - inAmt) / Math.max(outAmt, inAmt);
+      expect(relDiff).toBeLessThan(0.01); // each pair is within the configured 1% tolerance
     }
   });
 

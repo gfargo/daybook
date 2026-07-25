@@ -138,7 +138,10 @@ export const crossSourceMatch: ClassifierRule = {
 
       const outAsset = primaryAsset(out);
       const outAmount = principalNetOfFees(out);
-      if (!outAsset || !outAmount) continue;
+      // Skip if there's no principal leg, or if fees consumed the entire principal
+      // (net-of-fees ≤ 0). Decimal objects are always truthy, so !outAmount only
+      // catches `undefined`; the explicit .gt(0) rejects zero and negative values.
+      if (!outAsset || !outAmount || !outAmount.gt(0)) continue;
 
       // Collect all eligible in-events for this out.
       const candidates = ins.filter(inEvt => {
@@ -147,7 +150,8 @@ export const crossSourceMatch: ClassifierRule = {
 
         const inAsset = primaryAsset(inEvt);
         const inAmount = principalNetOfFees(inEvt);
-        if (!inAsset || !inAmount) return false;
+        // Same guard as the out side: reject undefined, zero, or negative principal.
+        if (!inAsset || !inAmount || !inAmount.gt(0)) return false;
 
         return (
           inAsset === outAsset &&
