@@ -36,6 +36,7 @@ import {
   normalizeAsset,
   normalizeHeader,
   parseAmount,
+  parsePackedFee,
   parseCsvRows,
   parseTimestamp,
   pick,
@@ -231,14 +232,28 @@ function buildTradeGroup(
 
     const base = parseAmount(pick(row, ['filled amount', 'filledamount', 'size', 'basevolume', 'base volume']));
     const quote = parseAmount(pick(row, ['total', 'quotevolume', 'quote volume']));
-    const fee = parseAmount(pick(row, ['fee']));
+    const feeRaw = pick(row, ['fee']);
     const feeCurrency = normalizeAsset(pick(row, ['fee currency', 'feecurrency']));
 
     if (base) baseTotal = baseTotal.plus(base.abs());
     if (quote) quoteTotal = quoteTotal.plus(quote.abs());
-    if (fee && feeCurrency) {
-      const current = feeBuckets.get(feeCurrency) ?? new Decimal(0);
-      feeBuckets.set(feeCurrency, current.plus(fee.abs()));
+    if (feeRaw) {
+      // Use parsePackedFee so "0.001BTC" works even without a Fee Currency column.
+      // Fall back to feeCurrency column as the default asset for bare numeric fees.
+      const fee = parsePackedFee(feeRaw, feeCurrency ?? undefined);
+      if (fee && fee.asset) {
+        // Accumulate signed: negative fee = rebate/credit, positive = cost.
+        const current = feeBuckets.get(fee.asset) ?? new Decimal(0);
+        feeBuckets.set(fee.asset, current.plus(fee.amount));
+      } else if (fee && !fee.asset) {
+        warnings.push(
+          `Bitget trade order ${orderId} row ${row.rowNumber}: fee "${feeRaw}" has no asset and no Fee Currency column — fee leg dropped`,
+        );
+      } else {
+        warnings.push(
+          `Bitget trade order ${orderId} row ${row.rowNumber}: fee value "${feeRaw}" could not be parsed — fee leg dropped`,
+        );
+      }
     }
   }
 
@@ -267,6 +282,7 @@ function buildTradeGroup(
   legs.push(assetLeg(quoteAsset, isBuy ? quoteTotal.negated() : quoteTotal));
   for (const [feeAsset, feeAmount] of feeBuckets) {
     if (feeAmount.isZero()) continue;
+    // Negate the signed bucket: positive fee (cost) → negative leg; negative fee (rebate) → positive leg.
     legs.push(assetLeg(feeAsset, feeAmount.negated(), true));
   }
 
@@ -356,8 +372,11 @@ function buildWithdrawalEvent(
   }
 
   const legs: AssetLeg[] = [assetLeg(coin, amount.abs().negated())];
-  if (fee && fee.abs().gt(0)) {
-    legs.push(assetLeg(coin, fee.abs().negated(), true));
+  if (fee && !fee.isZero()) {
+    // Preserve fee sign: a negative fee would be a rebate (credit).
+    // For withdrawals this is typically positive (cost), but we negate
+    // the raw sign so a positive fee cell → negative (debit) leg.
+    legs.push(assetLeg(coin, fee.negated(), true));
   }
 
   return {

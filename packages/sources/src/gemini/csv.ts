@@ -151,8 +151,11 @@ function buildLegs(
   const price = parseAmountSkipZero(pick(row, PRICE_ALIASES));
   const fiatAmount = parseAmountSkipZero(pick(row, FIAT_AMOUNT_ALIASES))?.abs()
     ?? deriveQuoteAmount(quantity, price);
-  const feeAmount = parseAmountSkipZero(pick(row, FEE_AMOUNT_ALIASES))?.abs();
-  const feeAsset = normalizeAsset(pick(row, FEE_CURRENCY_ALIASES)) ?? quote ?? 'USD';
+  const feeAmount = parseAmountSkipZero(pick(row, FEE_AMOUNT_ALIASES));
+  // Default fee asset: explicit column → quote asset → the row's own base asset → 'USD'.
+  // Using the row's own asset (rather than 'USD') is correct for single-asset rows such
+  // as on-chain withdrawals where the network fee is in the same coin being moved.
+  const feeAsset = normalizeAsset(pick(row, FEE_CURRENCY_ALIASES)) ?? quote ?? asset ?? 'USD';
   const quoteAsset = quote ?? 'USD';
   const legs: AssetLeg[] = [];
 
@@ -170,7 +173,8 @@ function buildLegs(
     legs.push(assetLeg(asset, quantity));
   }
 
-  if (feeAmount) {
+  if (feeAmount && !feeAmount.isZero()) {
+    // Negate the signed fee: positive fee (cost) → negative leg; negative fee (rebate) → positive leg.
     legs.push(assetLeg(feeAsset, feeAmount.negated(), true));
   }
 

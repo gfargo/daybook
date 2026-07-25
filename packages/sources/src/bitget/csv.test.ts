@@ -182,4 +182,49 @@ describe('parseBitgetCsv', () => {
     const result = parseBitgetCsv(csv, { accountId });
     expect(result.events.map((e) => e.txHash)).toEqual(['0xb', '0xc', '0xa']);
   });
+
+  it('parses packed fee "0.001BTC" with no Fee Currency column → BTC fee leg', () => {
+    const csv = [
+      'Order ID,Trading Pair,Side,Filled Price,Filled Amount,Total,Fee,Order Time,Order Type',
+      'order-packed,BTCUSDT,Buy,30000,1,30000,0.001BTC,2024-10-01 10:00:00,Limit',
+    ].join('\n');
+
+    const result = parseBitgetCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.legs).toEqual([
+      { asset: 'BTC', amount: '1' },
+      { asset: 'USDT', amount: '-30000' },
+      { asset: 'BTC', amount: '-0.001', feeFlag: true },
+    ]);
+    // No warnings about the fee
+    expect(result.warnings.filter(w => w.includes('fee'))).toHaveLength(0);
+  });
+
+  it('emits a warning when fee is a bare number with no Fee Currency column', () => {
+    const csv = [
+      'Order ID,Trading Pair,Side,Filled Price,Filled Amount,Total,Fee,Order Time,Order Type',
+      'order-bare,BTCUSDT,Buy,30000,1,30000,1.5,2024-10-02 10:00:00,Limit',
+    ].join('\n');
+
+    const result = parseBitgetCsv(csv, { accountId });
+    // Event is still produced (the trade itself is valid)
+    expect(result.events).toHaveLength(1);
+    // Fee is dropped but a warning is emitted
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    expect(feeLeg).toBeUndefined();
+    expect(result.warnings.some(w => w.includes('fee') && w.includes('order-bare'))).toBe(true);
+  });
+
+  it('preserves negative fee (maker rebate) as a positive credit leg', () => {
+    const csv = [
+      'Order ID,Trading Pair,Side,Filled Price,Filled Amount,Total,Fee,Fee Currency,Order Time,Order Type',
+      'order-rebate,ETHUSDT,Sell,2000,1,2000,-1.5,USDT,2024-10-03 10:00:00,Limit',
+    ].join('\n');
+
+    const result = parseBitgetCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    // -1.5 USDT fee (rebate) → negated → positive 1.5 USDT credit leg
+    expect(feeLeg).toMatchObject({ asset: 'USDT', amount: '1.5', feeFlag: true });
+  });
 });

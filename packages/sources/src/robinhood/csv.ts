@@ -199,7 +199,8 @@ function buildEvent(
   const quantity = parseAmountSkipZero(pick(row, QUANTITY_ALIASES));
   const fiatAmount = parseAmountSkipZero(pick(row, FIAT_AMOUNT_ALIASES));
   const price = parseAmountSkipZero(pick(row, PRICE_ALIASES));
-  const feeAmount = parseAmountSkipZero(pick(row, FEE_AMOUNT_ALIASES))?.abs();
+  const feeAmount = parseAmountSkipZero(pick(row, FEE_AMOUNT_ALIASES));
+  // Robinhood fees are always in USD (fiat-only platform); keep that default.
   const feeAsset = normalizeAsset(pick(row, FEE_CURRENCY_ALIASES)) ?? 'USD';
   const notes = pick(row, NOTES_ALIASES);
 
@@ -270,7 +271,8 @@ function buildLegs(input: {
     if (signedQuantity) legs.push(assetLeg(input.symbol, signedQuantity));
   }
 
-  if (input.feeAmount) {
+  if (input.feeAmount && !input.feeAmount.isZero()) {
+    // Negate the signed fee: positive fee (cost) → negative leg; negative fee (rebate) → positive leg.
     legs.push(assetLeg(input.feeAsset, input.feeAmount.negated(), true));
   }
 

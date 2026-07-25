@@ -107,4 +107,18 @@ describe('parseRobinhoodCsv', () => {
       'Robinhood CSV header not recognized',
     );
   });
+
+  it('preserves negative fee (maker rebate) as a positive credit leg', () => {
+    const csv = [
+      'Transaction Date,Transaction Type,Crypto Symbol,Crypto Amount,Crypto Price,Total,Fee,Fee Currency,Transaction ID',
+      '2024-07-01 10:00:00,Sell,ETH,1,2000,2000,-1.5,USD,rh-rebate-1',
+    ].join('\n');
+
+    const result = parseRobinhoodCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    // -1.5 USD fee (rebate) → negated → positive 1.5 USD credit
+    // Robinhood fees are always USD — the ?? 'USD' default is intentional
+    expect(feeLeg).toMatchObject({ asset: 'USD', amount: '1.5', feeFlag: true });
+  });
 });

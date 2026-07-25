@@ -12,6 +12,7 @@ import {
   sanitizeNativeId,
   hashRows,
   hashString,
+  parsePackedFee,
   FIAT_CURRENCIES,
 } from './csv-helpers.js';
 
@@ -191,6 +192,92 @@ describe('csv-helpers', () => {
       for (const c of ['USD', 'EUR', 'GBP', 'JPY']) {
         expect(FIAT_CURRENCIES.has(c)).toBe(true);
       }
+    });
+  });
+
+  describe('parsePackedFee', () => {
+    it('parses simple packed "<amount><TICKER>" cell', () => {
+      const result = parsePackedFee('0.001BTC');
+      expect(result?.amount.toString()).toBe('0.001');
+      expect(result?.asset).toBe('BTC');
+    });
+
+    it('parses thousands-separated amount with ticker', () => {
+      const result = parsePackedFee('1,050.5USDT');
+      expect(result?.amount.toString()).toBe('1050.5');
+      expect(result?.asset).toBe('USDT');
+    });
+
+    it('parses scientific notation with ticker', () => {
+      const result = parsePackedFee('1e3USDT');
+      expect(result?.amount.toString()).toBe('1000');
+      expect(result?.asset).toBe('USDT');
+    });
+
+    it('parses space-separated amount and ticker', () => {
+      const result = parsePackedFee('600 USDT');
+      expect(result?.amount.toString()).toBe('600');
+      expect(result?.asset).toBe('USDT');
+    });
+
+    it('parses bare number and uses defaultAsset', () => {
+      const result = parsePackedFee('1.5', 'ETH');
+      expect(result?.amount.toString()).toBe('1.5');
+      expect(result?.asset).toBe('ETH');
+    });
+
+    it('parses bare number with no defaultAsset, asset is undefined', () => {
+      const result = parsePackedFee('1.5');
+      expect(result?.amount.toString()).toBe('1.5');
+      expect(result?.asset).toBeUndefined();
+    });
+
+    it('preserves negative sign for rebates', () => {
+      const result = parsePackedFee('-1.5USDT');
+      expect(result?.amount.toString()).toBe('-1.5');
+      expect(result?.asset).toBe('USDT');
+    });
+
+    it('preserves negative bare number', () => {
+      const result = parsePackedFee('-0.001', 'BTC');
+      expect(result?.amount.toString()).toBe('-0.001');
+      expect(result?.asset).toBe('BTC');
+    });
+
+    it('returns undefined for empty string', () => {
+      expect(parsePackedFee('')).toBeUndefined();
+    });
+
+    it('returns undefined for whitespace only', () => {
+      expect(parsePackedFee('   ')).toBeUndefined();
+    });
+
+    it('returns undefined for undefined input', () => {
+      expect(parsePackedFee(undefined)).toBeUndefined();
+    });
+
+    it('returns undefined for unparsable junk', () => {
+      expect(parsePackedFee('abc')).toBeUndefined();
+      expect(parsePackedFee('!@#$')).toBeUndefined();
+    });
+
+    it('handles EOS ticker without confusing with scientific notation', () => {
+      // "10EOS" should parse as number=10, asset=EOS (not 10*e0*S)
+      const result = parsePackedFee('10EOS');
+      expect(result?.amount.toString()).toBe('10');
+      expect(result?.asset).toBe('EOS');
+    });
+
+    it('handles 1E3USDT (uppercase E scientific) with ticker', () => {
+      const result = parsePackedFee('1E3USDT');
+      expect(result?.amount.toString()).toBe('1000');
+      expect(result?.asset).toBe('USDT');
+    });
+
+    it('handles large numbers with commas', () => {
+      const result = parsePackedFee('1,000,000.5BTC');
+      expect(result?.amount.toString()).toBe('1000000.5');
+      expect(result?.asset).toBe('BTC');
     });
   });
 });
