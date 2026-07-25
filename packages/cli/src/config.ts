@@ -73,6 +73,20 @@ const TaxConfigSchema = z.object({
     .default('subtract-from-proceeds'),
 });
 
+const ClassifierConfigSchema = z.object({
+  /**
+   * Maximum time difference in seconds for Rule 03 cross-source matching.
+   * Default: 1800 (30 minutes). Increase for slower chains or exchanges
+   * with long confirmation times.
+   */
+  crossSourceMatchWindowSeconds: z.number().int().positive().default(1800),
+  /**
+   * Maximum relative amount difference for Rule 03 cross-source matching.
+   * Default: 0.01 (1%). Increase to accommodate larger withdrawal fees.
+   */
+  crossSourceAmountTolerance: z.number().positive().default(0.01),
+});
+
 export const ConfigSchema = z.object({
   /**
    * Where SQLite lives. Default: ~/.daybook/data.db. Tilde expansion is
@@ -81,6 +95,7 @@ export const ConfigSchema = z.object({
   dbPath: z.string().default('~/.daybook/data.db'),
   accounts: z.array(AccountConfigSchema).default([]),
   tax: TaxConfigSchema.default({}),
+  classifier: ClassifierConfigSchema.default({}),
   providers: z
     .object({
       alchemy: ProviderConfigSchema.optional(),
