@@ -31,6 +31,11 @@ export interface ParseBinanceResult {
   warnings: string[];
 }
 
+interface ParsedRows {
+  events: RawEvent[];
+  unparsedRowCount: number;
+}
+
 interface LedgerRow extends NormalizedRow {
   time: string;
   account: string;
@@ -49,7 +54,6 @@ export function parseBinanceCsv(
 ): ParseBinanceResult {
   const rows = parseCsvRows(contents);
   const warnings: string[] = [];
-  let unparsedRowCount = 0;
 
   const profile = detectProfile(rows);
   if (!profile) {
@@ -59,11 +63,10 @@ export function parseBinanceCsv(
     );
   }
 
-  const events = profile === 'ledger'
+  const { events, unparsedRowCount } = profile === 'ledger'
     ? parseLedgerRows(rows, options, warnings)
     : parseTaxReportRows(rows, options, warnings);
 
-  unparsedRowCount = warnings.filter(w => w.includes('skipped')).length;
   events.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
   return {
@@ -89,11 +92,13 @@ function parseLedgerRows(
   rows: NormalizedRow[],
   options: ParseBinanceOptions,
   warnings: string[],
-): RawEvent[] {
+): ParsedRows {
   const ledgerRows: LedgerRow[] = [];
+  let unparsed = 0;
   for (const row of rows) {
     const parsed = toLedgerRow(row, warnings);
     if (parsed) ledgerRows.push(parsed);
+    else unparsed++;
   }
 
   const events: RawEvent[] = [];
@@ -113,10 +118,19 @@ function parseLedgerRows(
   for (const row of ledgerRows) {
     if (consumed.has(row.rowNumber)) continue;
     const event = buildSingleLedgerEvent(row, options, warnings);
-    if (event) events.push(event);
+    if (event) {
+      events.push(event);
+      consumed.add(row.rowNumber);
+    }
   }
 
-  return suffixDuplicateIds(events);
+  // Rows that passed toLedgerRow but failed both the group build and the
+  // singleton build (e.g. unparsable timestamp) are counted here.
+  for (const row of ledgerRows) {
+    if (!consumed.has(row.rowNumber)) unparsed++;
+  }
+
+  return { events: suffixDuplicateIds(events), unparsedRowCount: unparsed };
 }
 
 function toLedgerRow(row: NormalizedRow, warnings: string[]): LedgerRow | undefined {
@@ -229,13 +243,15 @@ function parseTaxReportRows(
   rows: NormalizedRow[],
   options: ParseBinanceOptions,
   warnings: string[],
-): RawEvent[] {
+): ParsedRows {
   const events: RawEvent[] = [];
+  let unparsed = 0;
   for (const row of rows) {
     const event = buildTaxReportEvent(row, options, warnings);
     if (event) events.push(event);
+    else unparsed++;
   }
-  return suffixDuplicateIds(events);
+  return { events: suffixDuplicateIds(events), unparsedRowCount: unparsed };
 }
 
 function buildTaxReportEvent(
