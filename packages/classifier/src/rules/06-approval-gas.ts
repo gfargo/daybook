@@ -1,11 +1,16 @@
 /**
  * Rule 06 — Approval gas accounting.
  *
- * Events with type `crypto_out`, zero/negligible principal amount, and a
- * counterparty that is a contract address produce `fee_disposal` with one
- * negative ETH leg marked feeFlag.
+ * Events with type `crypto_out`, zero principal amount (every non-fee leg
+ * carries amount === 0), and a counterparty produce `fee_disposal` with
+ * every leg marked feeFlag.
  *
  * Also catches `fee_only` events from the EVM adapter.
+ *
+ * Note: the previous absolute-magnitude heuristic (NEGLIGIBLE_THRESHOLD ≤ 1e-7)
+ * was asset-blind — it misclassified real small-value transfers of 6-decimal
+ * stablecoins (e.g. -0.00000005 USDC) as fee_disposal.  Exact zero is the
+ * only portable signal that is unambiguous across token decimal precisions.
  */
 
 import Decimal from 'decimal.js';
@@ -16,13 +21,6 @@ import type {
     ClassifierRuleResult,
 } from '../types.js';
 import { entryId } from '../runner.js';
-
-// ─────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────
-
-/** Threshold below which an amount is considered negligible (gas-only). */
-const NEGLIGIBLE_THRESHOLD = new Decimal('0.0000001');
 
 // ─────────────────────────────────────────────────────────────────────────
 // Rule implementation
@@ -58,19 +56,22 @@ export const approvalGas: ClassifierRule = {
         continue;
       }
 
-      // Match crypto_out with negligible principal amount
+      // Match crypto_out with zero principal amount to a counterparty
       if (evt.type !== 'crypto_out') continue;
       if (!evt.counterparty) continue;
 
-      // Check if all non-fee legs have negligible amounts
+      // Require at least one principal leg (guard against vacuous [].every())
       const principalLegs = evt.legs.filter(l => !l.feeFlag);
-      const allNegligible = principalLegs.every(l =>
-        new Decimal(l.amount).abs().lte(NEGLIGIBLE_THRESHOLD),
+      if (principalLegs.length === 0) continue;
+
+      // All principal legs must carry exactly zero (asset-agnostic: 0 is 0
+      // regardless of token decimal precision)
+      const allZero = principalLegs.every(l =>
+        new Decimal(l.amount).isZero(),
       );
+      if (!allZero) continue;
 
-      if (!allNegligible) continue;
-
-      // This looks like a gas-only event (approval, etc.)
+      // This is a zero-value transfer — treat as approval gas
       const legs: AssetLeg[] = evt.legs.map(l => ({
         ...l,
         feeFlag: true,
