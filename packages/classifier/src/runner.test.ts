@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type {
     ClassifierOverride, RawEvent
 } from '@daybook/ledger';
-import { classify, entryId } from './runner.js';
+import { classify, entryId, validateOverrides } from './runner.js';
 import { DEFAULT_RULES } from './index.js';
 import type { ClassifierContext } from './types.js';
 
@@ -351,8 +351,6 @@ describe('overrides', () => {
 // validateOverrides
 // ─────────────────────────────────────────────────────────────────────────
 
-import { validateOverrides } from './runner.js';
-
 describe('validateOverrides', () => {
   it('passes with no overrides', () => {
     expect(() => validateOverrides([], [])).not.toThrow();
@@ -489,6 +487,38 @@ describe('validateOverrides', () => {
     const ctx = makeContext();
     expect(() => classify(events, overrides, ctx, DEFAULT_RULES)).toThrowError(/ov-a/);
     expect(() => classify(events, overrides, ctx, DEFAULT_RULES)).toThrowError(/ov-b/);
+  });
+
+  it('reports overlapping overrides once per pair, not once per shared rawEventId', () => {
+    const events = [
+      makeEvent({ id: 'evt-1' }),
+      makeEvent({ id: 'evt-2' }),
+      makeEvent({ id: 'evt-3' }),
+    ];
+    const overrides: ClassifierOverride[] = [
+      { id: 'ov-a', rawEventIds: ['evt-1', 'evt-2', 'evt-3'], type: 'trade', createdAt: new Date() },
+      { id: 'ov-b', rawEventIds: ['evt-1', 'evt-2', 'evt-3'], type: 'income', createdAt: new Date() },
+    ];
+    let err: Error | undefined;
+    try {
+      validateOverrides(overrides, events);
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    const overlapLines = err!.message
+      .split('\n')
+      .filter(line => line.includes('overlaps with'));
+    expect(overlapLines).toHaveLength(1);
+  });
+
+  it('does not treat two overrides with empty rawEventIds as duplicates', () => {
+    const events = [makeEvent({ id: 'evt-1' })];
+    const overrides: ClassifierOverride[] = [
+      { id: 'ov-empty-1', rawEventIds: [], type: 'trade', createdAt: new Date() },
+      { id: 'ov-empty-2', rawEventIds: [], type: 'income', createdAt: new Date() },
+    ];
+    expect(() => validateOverrides(overrides, events)).not.toThrow();
   });
 });
 

@@ -88,34 +88,39 @@ export function validateOverrides(
       );
     }
 
-    // Check for overlapping rawEventIds across overrides
+    // Check for overlapping rawEventIds across overrides (one message per
+    // offending pair, not one per shared rawEventId)
+    const overlapsReported = new Set<string>();
     for (const rid of rawEventIds) {
       const prior = claimedBy.get(rid);
       if (prior !== undefined) {
-        problems.push(
-          `Override "${id}" overlaps with override "${prior}": both reference raw event "${rid}".`,
-        );
+        if (!overlapsReported.has(prior)) {
+          overlapsReported.add(prior);
+          problems.push(
+            `Override "${id}" overlaps with override "${prior}": both reference raw event "${rid}".`,
+          );
+        }
       } else {
         claimedBy.set(rid, id);
       }
     }
 
-    // Check for duplicate overrides (same entryId = identical sorted event sets)
-    const eid = entryId(rawEventIds);
-    const priorEntry = entryIdClaimedBy.get(eid);
-    if (priorEntry !== undefined) {
-      // Only report as a duplicate if the overlap check didn't already cover it
-      const alreadyReported = rawEventIds.some(rid => {
-        const c = claimedBy.get(rid);
-        return c !== undefined && c !== id;
-      });
-      if (!alreadyReported) {
-        problems.push(
-          `Override "${id}" is a duplicate of override "${priorEntry}": both reference the same set of raw events.`,
-        );
+    // Check for duplicate overrides (same entryId = identical sorted event
+    // sets). Skipped for empty rawEventIds, since entryId([]) is a constant
+    // and such overrides are already skipped downstream by classify().
+    if (rawEventIds.length > 0) {
+      const eid = entryId(rawEventIds);
+      const priorEntry = entryIdClaimedBy.get(eid);
+      if (priorEntry !== undefined) {
+        // Only report as a duplicate if the overlap check didn't already cover it
+        if (!overlapsReported.has(priorEntry)) {
+          problems.push(
+            `Override "${id}" is a duplicate of override "${priorEntry}": both reference the same set of raw events.`,
+          );
+        }
+      } else {
+        entryIdClaimedBy.set(eid, id);
       }
-    } else {
-      entryIdClaimedBy.set(eid, id);
     }
   }
 
