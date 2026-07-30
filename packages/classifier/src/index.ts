@@ -14,7 +14,7 @@
  *   8. Default passthrough     — direct mapping for everything else
  */
 
-export { classify, entryId } from './runner.js';
+export { classify, entryId, findPrunableOverrides, validateOverrides } from './runner.js';
 export type {
   ClassifierContext,
   ClassifierRule,

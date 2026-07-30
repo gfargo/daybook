@@ -22,6 +22,7 @@ import {
     overridesSetCommand,
     overridesListCommand,
     overridesRemoveCommand,
+    overridesPruneCommand,
 } from './commands/overrides.js';
 
 const program = new Command();
@@ -231,7 +232,7 @@ Examples:
 
 const overrides = program
   .command('overrides')
-  .description('Manage manual price overrides for unpriced tokens');
+  .description('Manage manual price overrides and classifier overrides');
 
 overrides
   .command('set <asset> <date> <price>')
@@ -256,6 +257,17 @@ overrides
   .description('Delete a price override by its ID')
   .option('--config <path>', 'config file path')
   .action(overridesRemoveCommand);
+
+overrides
+  .command('prune')
+  .description('Remove classifier overrides that would make `classify` throw (stale, overlapping, or duplicate)')
+  .option('--dry-run', 'preview which overrides would be removed without deleting')
+  .option('--config <path>', 'config file path')
+  .addHelpText('after', `
+Examples:
+  daybook overrides prune
+  daybook overrides prune --dry-run`)
+  .action(overridesPruneCommand);
 
 // ─── Parse and run ───────────────────────────────────────────────────────
 

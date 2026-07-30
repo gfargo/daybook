@@ -180,6 +180,16 @@ describe('raw events — read', () => {
     });
     expect(result.map(e => e.id)).toEqual(['new']);
   });
+
+  it('existingRawEventIds returns only the ids that exist', () => {
+    repo.insertRawEvents([fixtureEvent({ id: 'a' }), fixtureEvent({ id: 'b' })]);
+    const found = repo.existingRawEventIds(['a', 'b', 'missing']);
+    expect(found).toEqual(new Set(['a', 'b']));
+  });
+
+  it('existingRawEventIds returns an empty set for no ids', () => {
+    expect(repo.existingRawEventIds([])).toEqual(new Set());
+  });
 });
 
 // ─── Source sync state ─────────────────────────────────────────────────
@@ -226,5 +236,78 @@ describe('source sync state', () => {
       cursor: 'new',
       lastSyncedAt: 2,
     });
+  });
+});
+
+// ─── rebuildLedgerEntries — transaction rollback ───────────────────────
+
+describe('rebuildLedgerEntries — transaction rollback', () => {
+  beforeEach(() => repo.upsertAccount(fixtureAccount()));
+
+  it('preserves prior entries when a rebuild fails due to a UNIQUE constraint on id', () => {
+    // Seed a valid event and a first successful rebuild
+    const evt1: RawEvent = fixtureEvent({ id: 'evt-seed-1' });
+    repo.insertRawEvents([evt1]);
+
+    const priorEntry = {
+      id: 'entry-prior-1',
+      timestamp: evt1.timestamp,
+      type: 'trade' as const,
+      legs: evt1.legs,
+      rawEventIds: [evt1.id],
+      reason: 'initial',
+    };
+    repo.rebuildLedgerEntries([priorEntry]);
+
+    const before = repo.getLedgerEntries({ limit: 100 });
+    expect(before).toHaveLength(1);
+    expect(before[0]!.id).toBe('entry-prior-1');
+
+    // Attempt a rebuild with two entries sharing the same id (duplicate entryId)
+    const badEntry1 = { ...priorEntry, id: 'entry-dup' };
+    const badEntry2 = { ...priorEntry, id: 'entry-dup' }; // same id — UNIQUE violation
+
+    expect(() => repo.rebuildLedgerEntries([badEntry1, badEntry2])).toThrow();
+
+    // Prior entries must survive — the failed rebuild should have rolled back
+    const after = repo.getLedgerEntries({ limit: 100 });
+    expect(after).toHaveLength(1);
+    expect(after[0]!.id).toBe('entry-prior-1');
+  });
+
+  it('preserves prior entries when a rebuild fails due to a FOREIGN KEY violation (stale rawEventId)', () => {
+    // Seed a valid event and initial rebuild
+    const evt1: RawEvent = fixtureEvent({ id: 'evt-fk-1' });
+    repo.insertRawEvents([evt1]);
+
+    const priorEntry = {
+      id: 'entry-fk-prior',
+      timestamp: evt1.timestamp,
+      type: 'income' as const,
+      legs: evt1.legs,
+      rawEventIds: [evt1.id],
+      reason: 'initial',
+    };
+    repo.rebuildLedgerEntries([priorEntry]);
+
+    const before = repo.getLedgerEntries({ limit: 100 });
+    expect(before).toHaveLength(1);
+
+    // Attempt a rebuild referencing a non-existent raw event id
+    const badEntry = {
+      id: 'entry-fk-bad',
+      timestamp: evt1.timestamp,
+      type: 'trade' as const,
+      legs: evt1.legs,
+      rawEventIds: ['raw-event-that-does-not-exist'],
+      reason: 'bad',
+    };
+
+    expect(() => repo.rebuildLedgerEntries([badEntry])).toThrow();
+
+    // Prior entries must survive
+    const after = repo.getLedgerEntries({ limit: 100 });
+    expect(after).toHaveLength(1);
+    expect(after[0]!.id).toBe('entry-fk-prior');
   });
 });

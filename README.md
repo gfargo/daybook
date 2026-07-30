@@ -265,6 +265,14 @@ daybook overrides list
 
 # Remove an override
 daybook overrides remove <id>
+
+# Remove classifier overrides that would make `classify` throw: stale (raw
+# events no longer exist) or overlapping/duplicate (conflict with an earlier
+# override — the earliest-created override wins, later ones are removed)
+daybook overrides prune
+
+# Preview which classifier overrides would be removed without deleting
+daybook overrides prune --dry-run
 ```
 
 All syncs are idempotent — running them twice with the same data is a no-op.
@@ -423,7 +431,7 @@ Spot symbols like `BTCUSDT` (or legacy `BTCUSDT_SPBL`) are normalized by strippi
 | `daybook export <year>` | Export tax-ready CSV (with `--method`, `--lot-selections`, `--no-wash-sale-flag`) |
 | `daybook reconcile <year> --1099da <file>` | Compare disposals against an exchange 1099-DA and recommend Form 8949 box A/B/C |
 | `daybook compare <year>` | Compare FIFO, HIFO, and LIFO side by side |
-| `daybook overrides set/list/remove` | Manage manual price overrides |
+| `daybook overrides set/list/remove/prune` | Manage manual price overrides and classifier overrides |
 
 ## Roadmap
 

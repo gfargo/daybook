@@ -1,16 +1,21 @@
 /**
- * `daybook overrides` — manage manual price overrides.
+ * `daybook overrides` — manage manual price overrides and classifier overrides.
  *
  * Subcommands:
  *   set <asset> <date> <price>  — insert or update a price override
  *   list                        — display all overrides in a formatted table
  *   remove <id>                 — delete an override by ID
+ *   prune                       — remove classifier overrides that would make
+ *                                 `classify` throw: stale (rawEventIds no
+ *                                 longer exist) or overlapping/duplicate
+ *                                 (conflict with an earlier override)
  *
  * Price overrides are the last-resort pricing source for tokens that no
  * automated API covers. They live in the `price_overrides` SQLite table
  * and are consumed by the ManualOverrideProvider in the pricing chain.
  */
 
+import { findPrunableOverrides } from '@daybook/classifier';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import type { PriceOverride } from '@daybook/ledger';
 import { expandPath, loadConfig } from '../config.js';
@@ -33,6 +38,11 @@ export interface OverridesListOptions {
 
 export interface OverridesRemoveOptions {
   config?: string;
+}
+
+export interface OverridesPruneOptions {
+  config?: string;
+  dryRun?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -186,6 +196,69 @@ export async function overridesRemoveCommand(
       console.log(`Removed price override: ${id}`);
     } else {
       console.log(`No price override found with ID: ${id}`);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Handler for `daybook overrides prune`.
+ *
+ * Removes classifier overrides that would make `daybook classify` throw:
+ * those referencing a raw event that no longer exists ("stale"), and those
+ * that overlap or duplicate an earlier override's rawEventIds (the
+ * earliest-created override for a given event is kept; later conflicting
+ * overrides are the ones removed). This is the CLI recovery path for the
+ * scenario where `classify --review` creates two overrides on the same
+ * event — prune drops the redundant one instead of requiring manual SQLite
+ * edits.
+ *
+ * With `--dry-run`: prints which overrides would be removed without deleting.
+ */
+export async function overridesPruneCommand(
+  opts: OverridesPruneOptions,
+): Promise<void> {
+  const config = loadConfig(opts.config);
+  const db = openDatabase(expandPath(config.dbPath));
+  const repo = createRepo(db.raw);
+
+  try {
+    const overrides = repo.getClassifierOverrides();
+
+    if (overrides.length === 0) {
+      console.log('No classifier overrides found. Nothing to prune.');
+      return;
+    }
+
+    const existingEventIds = repo.existingRawEventIds(
+      overrides.flatMap(o => o.rawEventIds),
+    );
+    const prunable = findPrunableOverrides(overrides, existingEventIds);
+
+    if (prunable.size === 0) {
+      console.log(
+        `All ${overrides.length} classifier override(s) are valid. Nothing to prune.`,
+      );
+      return;
+    }
+
+    if (opts.dryRun) {
+      console.log(`Would remove ${prunable.size} classifier override(s):`);
+      for (const reasons of prunable.values()) {
+        for (const reason of reasons) console.log(`  ${reason}`);
+      }
+      console.log('\nRe-run without --dry-run to apply.');
+      return;
+    }
+
+    for (const id of prunable.keys()) {
+      repo.deleteClassifierOverride(id);
+    }
+
+    console.log(`Removed ${prunable.size} classifier override(s):`);
+    for (const reasons of prunable.values()) {
+      for (const reason of reasons) console.log(`  ${reason}`);
     }
   } finally {
     db.close();

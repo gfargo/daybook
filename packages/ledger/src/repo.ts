@@ -97,6 +97,8 @@ export interface Repo {
   insertRawEvents(events: ReadonlyArray<RawEvent>): InsertResult;
   getRawEventById(id: string): RawEvent | null;
   getRawEvents(filter: RawEventFilter): RawEvent[];
+  /** Subset of `ids` that exist in raw_events — batched IN queries instead of one round-trip per id. */
+  existingRawEventIds(ids: ReadonlyArray<string>): Set<string>;
   countByType(filter: Omit<RawEventFilter, 'limit' | 'offset'>): CountByType[];
   countTotal(filter: Omit<RawEventFilter, 'limit' | 'offset'>): number;
 
@@ -306,6 +308,23 @@ class RepoImpl implements Repo {
       const legs = this.getLegsStmt.all(row.id) as RawLegRow[];
       return rowToEvent(row, legs);
     });
+  }
+
+  existingRawEventIds(ids: ReadonlyArray<string>): Set<string> {
+    const unique = [...new Set(ids)];
+    const found = new Set<string>();
+    const CHUNK_SIZE = 500; // stay well under SQLite's bound parameter limit
+
+    for (let i = 0; i < unique.length; i += CHUNK_SIZE) {
+      const chunk = unique.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = this.db
+        .prepare(`SELECT id FROM raw_events WHERE id IN (${placeholders})`)
+        .all(...chunk) as { id: string }[];
+      for (const row of rows) found.add(row.id);
+    }
+
+    return found;
   }
 
   countByType(
