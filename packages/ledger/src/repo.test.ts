@@ -180,6 +180,16 @@ describe('raw events — read', () => {
     });
     expect(result.map(e => e.id)).toEqual(['new']);
   });
+
+  it('existingRawEventIds returns only the ids that exist', () => {
+    repo.insertRawEvents([fixtureEvent({ id: 'a' }), fixtureEvent({ id: 'b' })]);
+    const found = repo.existingRawEventIds(['a', 'b', 'missing']);
+    expect(found).toEqual(new Set(['a', 'b']));
+  });
+
+  it('existingRawEventIds returns an empty set for no ids', () => {
+    expect(repo.existingRawEventIds([])).toEqual(new Set());
+  });
 });
 
 // ─── Source sync state ─────────────────────────────────────────────────

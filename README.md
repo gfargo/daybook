@@ -266,10 +266,12 @@ daybook overrides list
 # Remove an override
 daybook overrides remove <id>
 
-# Remove stale classifier overrides (those whose raw events no longer exist)
+# Remove classifier overrides that would make `classify` throw: stale (raw
+# events no longer exist) or overlapping/duplicate (conflict with an earlier
+# override — the earliest-created override wins, later ones are removed)
 daybook overrides prune
 
-# Preview which stale classifier overrides would be removed without deleting
+# Preview which classifier overrides would be removed without deleting
 daybook overrides prune --dry-run
 ```
 

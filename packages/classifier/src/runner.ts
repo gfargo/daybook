@@ -44,31 +44,38 @@ export function entryId(rawEventIds: string[]): string {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Validate classifier overrides before applying them.
+ * Find every validation problem across a set of classifier overrides.
  *
- * Throws an Error with a readable multi-line message when any of the
- * following problems are found:
+ * A problem is one of:
+ *   - A `rawEventId` in an override does not exist in `existingEventIds`
+ *     ("stale override") — rejected, not silently skipped.
+ *   - Two overrides reference the same `rawEventId` ("overlapping overrides").
+ *   - Two overrides would produce the same `entryId` over their existing
+ *     ids (identical event sets, i.e. duplicate overrides). Checked first so
+ *     an exact repeat gets one focused message instead of one overlap line
+ *     per shared event — which also means an override never reports both.
  *
- *   - A `rawEventId` in an override does not exist in the provided events
- *     ("stale override")
- *   - Two overrides reference the same `rawEventId` ("overlapping overrides")
- *   - Two overrides would produce the same `entryId` (identical event sets,
- *     i.e. duplicate overrides)
+ * Only rawEventIds backed by a real event participate in overlap/duplicate
+ * detection: a stale id is already reported on its own and shouldn't also
+ * masquerade as an overlap against another override.
  *
- * Overrides that match zero events are silently skipped by `classify()`;
- * they are not an error here (those events may have been deleted).
- *
- * @param overrides  Overrides to validate.
- * @param events     The full set of raw events that will be classified.
- * @throws {Error}   If any validation problem is found. The message names
- *                   every offending override ID.
+ * Returns problems grouped by the offending override's id, in override
+ * order, so callers can both build a human-readable error (`validateOverrides`)
+ * and identify which override ids are safe to drop (`findPrunableOverrides`).
  */
-export function validateOverrides(
+function findOverrideProblems(
   overrides: ReadonlyArray<ClassifierOverride>,
-  events: ReadonlyArray<RawEvent>,
-): void {
-  const eventIdSet = new Set(events.map(e => e.id));
-  const problems: string[] = [];
+  existingEventIds: ReadonlySet<string>,
+): Map<string, string[]> {
+  const problemsByOverrideId = new Map<string, string[]>();
+  const addProblem = (id: string, message: string): void => {
+    const existing = problemsByOverrideId.get(id);
+    if (existing) {
+      existing.push(message);
+    } else {
+      problemsByOverrideId.set(id, [message]);
+    }
+  };
 
   // Track which rawEventId is claimed by which override (for overlap detection)
   const claimedBy = new Map<string, string>(); // rawEventId → first override.id
@@ -79,24 +86,40 @@ export function validateOverrides(
   for (const override of overrides) {
     const { id, rawEventIds } = override;
 
-    // Check for stale rawEventIds (IDs not present in events)
-    const stale = rawEventIds.filter(rid => !eventIdSet.has(rid));
+    const stale = rawEventIds.filter(rid => !existingEventIds.has(rid));
     if (stale.length > 0) {
-      problems.push(
-        `Override "${id}" references ${stale.length} raw event(s) that no longer exist: ${stale.join(', ')}. ` +
-        `Run \`daybook overrides prune\` to remove stale overrides.`,
+      addProblem(
+        id,
+        `Override "${id}" references ${stale.length} raw event(s) that no longer exist: ${stale.join(', ')}.`,
       );
     }
 
-    // Check for overlapping rawEventIds across overrides (one message per
-    // offending pair, not one per shared rawEventId)
+    const validIds = rawEventIds.filter(rid => existingEventIds.has(rid));
+
+    // Duplicate check first: identical event sets always overlap on every
+    // id, so checking overlap first would make this branch unreachable.
+    if (validIds.length > 0) {
+      const eid = entryId(validIds);
+      const priorEntry = entryIdClaimedBy.get(eid);
+      if (priorEntry !== undefined) {
+        addProblem(
+          id,
+          `Override "${id}" is a duplicate of override "${priorEntry}": both reference the same set of raw events.`,
+        );
+        continue;
+      }
+      entryIdClaimedBy.set(eid, id);
+    }
+
+    // Partial overlap: one message per offending pair, not one per shared id.
     const overlapsReported = new Set<string>();
-    for (const rid of rawEventIds) {
+    for (const rid of validIds) {
       const prior = claimedBy.get(rid);
       if (prior !== undefined) {
         if (!overlapsReported.has(prior)) {
           overlapsReported.add(prior);
-          problems.push(
+          addProblem(
+            id,
             `Override "${id}" overlaps with override "${prior}": both reference raw event "${rid}".`,
           );
         }
@@ -104,32 +127,52 @@ export function validateOverrides(
         claimedBy.set(rid, id);
       }
     }
-
-    // Check for duplicate overrides (same entryId = identical sorted event
-    // sets). Skipped for empty rawEventIds, since entryId([]) is a constant
-    // and such overrides are already skipped downstream by classify().
-    if (rawEventIds.length > 0) {
-      const eid = entryId(rawEventIds);
-      const priorEntry = entryIdClaimedBy.get(eid);
-      if (priorEntry !== undefined) {
-        // Only report as a duplicate if the overlap check didn't already cover it
-        if (!overlapsReported.has(priorEntry)) {
-          problems.push(
-            `Override "${id}" is a duplicate of override "${priorEntry}": both reference the same set of raw events.`,
-          );
-        }
-      } else {
-        entryIdClaimedBy.set(eid, id);
-      }
-    }
   }
+
+  return problemsByOverrideId;
+}
+
+/**
+ * Validate classifier overrides before applying them.
+ *
+ * @param overrides  Overrides to validate.
+ * @param events     The full set of raw events that will be classified.
+ * @throws {Error}   If any validation problem is found (see
+ *                   `findOverrideProblems`). The message names every
+ *                   offending override ID.
+ */
+export function validateOverrides(
+  overrides: ReadonlyArray<ClassifierOverride>,
+  events: ReadonlyArray<RawEvent>,
+): void {
+  const existingEventIds = new Set(events.map(e => e.id));
+  const problems = [...findOverrideProblems(overrides, existingEventIds).values()].flat();
 
   if (problems.length > 0) {
     throw new Error(
       `Classifier override validation failed with ${problems.length} problem(s):\n` +
-      problems.map((p, i) => `  ${i + 1}. ${p}`).join('\n'),
+      problems.map((p, i) => `  ${i + 1}. ${p}`).join('\n') +
+      '\n\nRun `daybook overrides prune` to remove the offending overrides.',
     );
   }
+}
+
+/**
+ * Identify classifier overrides that `daybook overrides prune` can safely
+ * remove: those referencing a raw event that's gone ("stale"), and those
+ * that lose a duplicate/overlap conflict against an earlier override in
+ * `overrides` (the earliest-created override for a given event wins; later
+ * conflicting overrides are the ones flagged).
+ *
+ * @param overrides         Overrides to check, ordered oldest-first.
+ * @param existingEventIds  IDs of raw events that still exist in the DB.
+ * @returns Map of override id → human-readable reason(s) it's prunable.
+ */
+export function findPrunableOverrides(
+  overrides: ReadonlyArray<ClassifierOverride>,
+  existingEventIds: ReadonlySet<string>,
+): Map<string, string[]> {
+  return findOverrideProblems(overrides, existingEventIds);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

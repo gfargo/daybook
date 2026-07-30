@@ -260,7 +260,7 @@ overrides
 
 overrides
   .command('prune')
-  .description('Remove stale classifier overrides (rawEventIds no longer in the database)')
+  .description('Remove classifier overrides that would make `classify` throw (stale, overlapping, or duplicate)')
   .option('--dry-run', 'preview which overrides would be removed without deleting')
   .option('--config <path>', 'config file path')
   .addHelpText('after', `

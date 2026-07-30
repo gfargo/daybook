@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type {
     ClassifierOverride, RawEvent
 } from '@daybook/ledger';
-import { classify, entryId, validateOverrides } from './runner.js';
+import { classify, entryId, findPrunableOverrides, validateOverrides } from './runner.js';
 import { DEFAULT_RULES } from './index.js';
 import type { ClassifierContext } from './types.js';
 
@@ -324,11 +324,10 @@ describe('overrides', () => {
     expect(result.entries[0]!.type).toBe('transfer_external_out');
   });
 
-  it('entry rawEventIds are derived only from existing events (stale ids filtered out at apply time)', () => {
-    // Even if an override somehow has an extra id that matches no event,
-    // the resulting entry must only contain ids from actually-found events.
-    // validateOverrides rejects stale ids before we get here, but we
-    // also test that classify uses overrideEvents.map(e => e.id) not override.rawEventIds.
+  it('entry rawEventIds are derived only from existing events', () => {
+    // validateOverrides rejects stale ids before classify() applies
+    // overrides, so this only exercises the valid-id path — see
+    // validateOverrides tests for stale-id rejection coverage.
     const evt: RawEvent = makeEvent({ id: 'evt-real' });
 
     // Build a valid single-event override (no stale ids)
@@ -391,7 +390,7 @@ describe('validateOverrides', () => {
     expect(err!.message).toContain('evt-gone');
   });
 
-  it('throws for two overrides with the same rawEventId (overlapping overrides)', () => {
+  it('throws for two overrides referencing the same single rawEventId', () => {
     const events = [makeEvent({ id: 'evt-shared' })];
     const overrides: ClassifierOverride[] = [
       { id: 'ov-first', rawEventIds: ['evt-shared'], type: 'income', createdAt: new Date() },
@@ -406,7 +405,9 @@ describe('validateOverrides', () => {
     expect(err).toBeDefined();
     expect(err!.message).toContain('ov-first');
     expect(err!.message).toContain('ov-second');
-    expect(err!.message).toContain('evt-shared');
+    // A single shared event is both a full overlap and a full duplicate;
+    // the duplicate message wins (see the identical-rawEventIds test below).
+    expect(err!.message).toContain('is a duplicate of');
   });
 
   it('throws for two overrides with partially overlapping rawEventIds', () => {
@@ -444,17 +445,23 @@ describe('validateOverrides', () => {
       err = e as Error;
     }
     expect(err).toBeDefined();
-    // Should detect overlap (same event ids referenced by both)
+    // Identical event sets are reported as a duplicate, not an overlap —
+    // the duplicate check runs before the overlap check for this reason.
     expect(err!.message).toContain('ov-first');
     expect(err!.message).toContain('ov-second');
+    expect(err!.message).toContain('is a duplicate of');
+    expect(err!.message).not.toContain('overlaps with');
   });
 
   it('aggregates multiple problems in one error', () => {
-    const events = [makeEvent({ id: 'evt-real' })];
+    const events = [makeEvent({ id: 'evt-real' }), makeEvent({ id: 'evt-real-2' })];
     const overrides: ClassifierOverride[] = [
       { id: 'ov-stale', rawEventIds: ['evt-missing'], type: 'income', createdAt: new Date() },
       { id: 'ov-overlap-1', rawEventIds: ['evt-real'], type: 'trade', createdAt: new Date() },
-      { id: 'ov-overlap-2', rawEventIds: ['evt-real'], type: 'income', createdAt: new Date() },
+      // Partial overlap (not identical to ov-overlap-1) so this exercises
+      // the overlap path, not the duplicate path — see the dedicated
+      // duplicate-overrides test above.
+      { id: 'ov-overlap-2', rawEventIds: ['evt-real', 'evt-real-2'], type: 'income', createdAt: new Date() },
     ];
     let err: Error | undefined;
     try {
@@ -494,10 +501,13 @@ describe('validateOverrides', () => {
       makeEvent({ id: 'evt-1' }),
       makeEvent({ id: 'evt-2' }),
       makeEvent({ id: 'evt-3' }),
+      makeEvent({ id: 'evt-4' }),
     ];
     const overrides: ClassifierOverride[] = [
       { id: 'ov-a', rawEventIds: ['evt-1', 'evt-2', 'evt-3'], type: 'trade', createdAt: new Date() },
-      { id: 'ov-b', rawEventIds: ['evt-1', 'evt-2', 'evt-3'], type: 'income', createdAt: new Date() },
+      // Shares all 3 of ov-a's events but isn't identical (adds evt-4), so
+      // this is a partial overlap, not a duplicate.
+      { id: 'ov-b', rawEventIds: ['evt-1', 'evt-2', 'evt-3', 'evt-4'], type: 'income', createdAt: new Date() },
     ];
     let err: Error | undefined;
     try {
@@ -519,6 +529,41 @@ describe('validateOverrides', () => {
       { id: 'ov-empty-2', rawEventIds: [], type: 'income', createdAt: new Date() },
     ];
     expect(() => validateOverrides(overrides, events)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// findPrunableOverrides
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('findPrunableOverrides', () => {
+  it('returns an empty map when no overrides are prunable', () => {
+    const existingEventIds = new Set(['evt-1', 'evt-2']);
+    const overrides: ClassifierOverride[] = [
+      { id: 'ov-1', rawEventIds: ['evt-1'], type: 'income', createdAt: new Date() },
+      { id: 'ov-2', rawEventIds: ['evt-2'], type: 'trade', createdAt: new Date() },
+    ];
+    expect(findPrunableOverrides(overrides, existingEventIds).size).toBe(0);
+  });
+
+  it('flags a stale override for removal', () => {
+    const existingEventIds = new Set(['evt-real']);
+    const overrides: ClassifierOverride[] = [
+      { id: 'ov-stale', rawEventIds: ['evt-missing'], type: 'income', createdAt: new Date() },
+    ];
+    const prunable = findPrunableOverrides(overrides, existingEventIds);
+    expect(prunable.has('ov-stale')).toBe(true);
+  });
+
+  it('keeps the earliest override and flags the later duplicate/overlap for removal', () => {
+    const existingEventIds = new Set(['evt-shared']);
+    const overrides: ClassifierOverride[] = [
+      { id: 'ov-first', rawEventIds: ['evt-shared'], type: 'income', createdAt: new Date() },
+      { id: 'ov-second', rawEventIds: ['evt-shared'], type: 'trade', createdAt: new Date() },
+    ];
+    const prunable = findPrunableOverrides(overrides, existingEventIds);
+    expect(prunable.has('ov-first')).toBe(false);
+    expect(prunable.has('ov-second')).toBe(true);
   });
 });
 
