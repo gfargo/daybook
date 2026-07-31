@@ -256,6 +256,305 @@ describe('syncCommand Coinbase API', () => {
     })).rejects.toThrow('COINBASE_CDP_KEY_NAME and COINBASE_CDP_PRIVATE_KEY');
   });
 
+  it('leaves the stored cursor unchanged on an empty sync result', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      lastSyncedAt: 1_700_000_000,
+    });
+    db.close();
+
+    syncCoinbaseApiMock.mockResolvedValue({
+      events: [],
+      totalRows: 0,
+      countsByType: {},
+      unparsedRowCount: 0,
+      warnings: [],
+      fetched: { accounts: 1, transactions: 0, fills: 0 },
+    });
+    vi.stubEnv('COINBASE_CDP_KEY_NAME', 'organizations/org/apiKeys/key');
+    vi.stubEnv('COINBASE_CDP_PRIVATE_KEY', 'test-private-key');
+
+    await syncCommand({ source: 'coinbase', config: configPath });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const syncState = verifyRepo.getSyncState('coinbase', 'main-coinbase');
+    verifyDb.close();
+
+    expect(syncState?.lastSyncedAt).toBe(1_700_000_000);
+  });
+
+  it('caps the stored watermark at the earliest unparsed row so it gets retried', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    db.close();
+
+    syncCoinbaseApiMock.mockResolvedValue({
+      events: [coinbaseApiEvent()], // timestamp 2024-01-01T00:00:00Z => 1_704_067_200
+      totalRows: 2,
+      countsByType: { trade: 1 },
+      unparsedRowCount: 1,
+      earliestUnparsedAt: new Date('2023-12-01T00:00:00Z'), // earlier than the parsed event
+      warnings: [],
+      fetched: { accounts: 1, transactions: 2, fills: 1 },
+    });
+    vi.stubEnv('COINBASE_CDP_KEY_NAME', 'organizations/org/apiKeys/key');
+    vi.stubEnv('COINBASE_CDP_PRIVATE_KEY', 'test-private-key');
+
+    await syncCommand({ source: 'coinbase', config: configPath });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const syncState = verifyRepo.getSyncState('coinbase', 'main-coinbase');
+    verifyDb.close();
+
+    const earliestUnparsedSeconds = Math.floor(new Date('2023-12-01T00:00:00Z').getTime() / 1000);
+    expect(syncState?.lastSyncedAt).toBe(earliestUnparsedSeconds - 1);
+  });
+
+  it('fetches with an overlap window before the stored cursor', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    const storedCursor = 1_700_000_000;
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      lastSyncedAt: storedCursor,
+    });
+    db.close();
+
+    syncCoinbaseApiMock.mockResolvedValue({
+      events: [],
+      totalRows: 0,
+      countsByType: {},
+      unparsedRowCount: 0,
+      warnings: [],
+      fetched: { accounts: 1, transactions: 0, fills: 0 },
+    });
+    vi.stubEnv('COINBASE_CDP_KEY_NAME', 'organizations/org/apiKeys/key');
+    vi.stubEnv('COINBASE_CDP_PRIVATE_KEY', 'test-private-key');
+
+    await syncCommand({ source: 'coinbase', config: configPath });
+
+    const OVERLAP_SECONDS = 7 * 24 * 60 * 60;
+    expect(syncCoinbaseApiMock).toHaveBeenCalledWith(expect.objectContaining({
+      from: new Date((storedCursor - OVERLAP_SECONDS) * 1000),
+    }));
+  });
+
+  it('does not clobber the stored cursor forward when --from is ahead of it without --reset-cursor', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    const storedCursor = Math.floor(new Date('2024-06-01').getTime() / 1000);
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      lastSyncedAt: storedCursor,
+    });
+    db.close();
+
+    syncCoinbaseApiMock.mockResolvedValue({
+      events: [coinbaseApiEvent({ timestamp: new Date('2025-06-01T00:00:00Z') })],
+      totalRows: 1,
+      countsByType: { trade: 1 },
+      unparsedRowCount: 0,
+      warnings: [],
+      fetched: { accounts: 1, transactions: 1, fills: 1 },
+    });
+    vi.stubEnv('COINBASE_CDP_KEY_NAME', 'organizations/org/apiKeys/key');
+    vi.stubEnv('COINBASE_CDP_PRIVATE_KEY', 'test-private-key');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await syncCommand({
+      source: 'coinbase',
+      config: configPath,
+      from: '2025-06-01',
+    });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const syncState = verifyRepo.getSyncState('coinbase', 'main-coinbase');
+    verifyDb.close();
+
+    expect(syncState?.lastSyncedAt).toBe(storedCursor);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('--reset-cursor'));
+    warnSpy.mockRestore();
+  });
+
+  it('moves the cursor forward past a forward --from when --reset-cursor is passed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    const storedCursor = Math.floor(new Date('2024-06-01').getTime() / 1000);
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      lastSyncedAt: storedCursor,
+    });
+    db.close();
+
+    const newTimestamp = new Date('2025-06-01T00:00:00Z');
+    syncCoinbaseApiMock.mockResolvedValue({
+      events: [coinbaseApiEvent({ timestamp: newTimestamp })],
+      totalRows: 1,
+      countsByType: { trade: 1 },
+      unparsedRowCount: 0,
+      warnings: [],
+      fetched: { accounts: 1, transactions: 1, fills: 1 },
+    });
+    vi.stubEnv('COINBASE_CDP_KEY_NAME', 'organizations/org/apiKeys/key');
+    vi.stubEnv('COINBASE_CDP_PRIVATE_KEY', 'test-private-key');
+
+    await syncCommand({
+      source: 'coinbase',
+      config: configPath,
+      from: '2025-06-01',
+      resetCursor: true,
+    });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const syncState = verifyRepo.getSyncState('coinbase', 'main-coinbase');
+    verifyDb.close();
+
+    expect(syncState?.lastSyncedAt).toBe(Math.floor(newTimestamp.getTime() / 1000));
+  });
+
+  it('still advances the cursor normally for a backfill --from behind the stored cursor', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-api-'));
+    const dbPath = join(dir, 'data.db');
+    const configPath = join(dir, 'config.json');
+
+    writeFileSync(configPath, JSON.stringify({
+      dbPath,
+      accounts: [
+        { id: 'main-coinbase', source: 'coinbase', identifier: 'user@example.com' },
+      ],
+    }), 'utf-8');
+
+    const db = openDatabase(dbPath);
+    const repo = createRepo(db.raw);
+    repo.upsertAccount({
+      id: 'main-coinbase',
+      source: 'coinbase',
+      identifier: 'user@example.com',
+    });
+    const storedCursor = Math.floor(new Date('2025-06-01').getTime() / 1000);
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId: 'main-coinbase',
+      lastSyncedAt: storedCursor,
+    });
+    db.close();
+
+    const parsedTimestamp = new Date('2024-06-15T00:00:00Z');
+    syncCoinbaseApiMock.mockResolvedValue({
+      events: [coinbaseApiEvent({ timestamp: parsedTimestamp })],
+      totalRows: 1,
+      countsByType: { trade: 1 },
+      unparsedRowCount: 0,
+      warnings: [],
+      fetched: { accounts: 1, transactions: 1, fills: 1 },
+    });
+    vi.stubEnv('COINBASE_CDP_KEY_NAME', 'organizations/org/apiKeys/key');
+    vi.stubEnv('COINBASE_CDP_PRIVATE_KEY', 'test-private-key');
+
+    await syncCommand({
+      source: 'coinbase',
+      config: configPath,
+      from: '2024-01-01',
+    });
+
+    const verifyDb = openDatabase(dbPath);
+    const verifyRepo = createRepo(verifyDb.raw);
+    const syncState = verifyRepo.getSyncState('coinbase', 'main-coinbase');
+    verifyDb.close();
+
+    expect(syncState?.lastSyncedAt).toBe(Math.floor(parsedTimestamp.getTime() / 1000));
+  });
+
   it('keeps --from rejected for Coinbase CSV imports', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'daybook-sync-coinbase-csv-'));
     const configPath = join(dir, 'config.json');
@@ -273,7 +572,7 @@ describe('syncCommand Coinbase API', () => {
   });
 });
 
-function coinbaseApiEvent(): RawEvent {
+function coinbaseApiEvent(overrides: Partial<RawEvent> = {}): RawEvent {
   return {
     id: 'coinbase:api:v3:fill:fill-1',
     source: 'coinbase',
@@ -285,6 +584,7 @@ function coinbaseApiEvent(): RawEvent {
       { asset: 'USD', amount: '-420' },
     ],
     raw: { fill: { entry_id: 'fill-1' } },
+    ...overrides,
   };
 }
 
