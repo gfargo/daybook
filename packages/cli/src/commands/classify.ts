@@ -78,6 +78,8 @@ export async function classifyCommand(opts: ClassifyOptions): Promise<void> {
       accountIds,
       dexRouters,
       bridges,
+      crossSourceMatchWindowSeconds: config.classifier.crossSourceMatchWindowSeconds,
+      crossSourceAmountTolerance: config.classifier.crossSourceAmountTolerance,
     };
 
     // 4. Run classifier

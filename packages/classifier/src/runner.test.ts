@@ -175,6 +175,318 @@ describe('cross-source self-transfer matching', () => {
     );
     expect(selfTransfers).toHaveLength(0);
   });
+
+  it('selects the nearest in by time, not the first in array order', () => {
+    const T = new Date('2024-06-01T10:00:00Z');
+    const T_near = new Date('2024-06-01T10:01:00Z'); // 60s later
+    const T_far  = new Date('2024-06-01T10:05:00Z'); // 300s later
+
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-1',
+      source: 'coinbase',
+      timestamp: T,
+      type: 'crypto_out',
+      legs: [{ asset: 'BTC', amount: '-1.0' }],
+    });
+
+    const inFar: RawEvent = makeEvent({
+      id: 'eth:in-far',
+      source: 'eth',
+      timestamp: T_far,
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '1.0' }],
+    });
+
+    const inNear: RawEvent = makeEvent({
+      id: 'eth:in-near',
+      source: 'eth',
+      timestamp: T_near,
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '1.0' }],
+    });
+
+    const ctx = makeContext({
+      crossSourceMatchWindowSeconds: 1800,
+    });
+
+    // Pass far before near — rule must still pick near
+    const result = classify([out, inFar, inNear], [], ctx, DEFAULT_RULES);
+
+    const selfTransfers = result.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers).toHaveLength(1);
+    expect(selfTransfers[0]!.rawEventIds).toContain('eth:in-near');
+    expect(selfTransfers[0]!.rawEventIds).not.toContain('eth:in-far');
+
+    // Reversed order must produce the same result
+    const result2 = classify([out, inNear, inFar], [], ctx, DEFAULT_RULES);
+    const selfTransfers2 = result2.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers2).toHaveLength(1);
+    expect(selfTransfers2[0]!.rawEventIds).toContain('eth:in-near');
+    expect(selfTransfers2[0]!.rawEventIds).not.toContain('eth:in-far');
+  });
+
+  it('breaks exact-time ties deterministically by ascending event ID', () => {
+    const T = new Date('2024-06-01T10:00:00Z');
+
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-1',
+      source: 'coinbase',
+      timestamp: T,
+      type: 'crypto_out',
+      legs: [{ asset: 'ETH', amount: '-2.0' }],
+    });
+
+    // Both ins at exactly the same timestamp — tie broken by id (ascending)
+    const inB: RawEvent = makeEvent({
+      id: 'eth:in-bbb',
+      source: 'eth',
+      timestamp: T,
+      type: 'crypto_in',
+      legs: [{ asset: 'ETH', amount: '2.0' }],
+    });
+
+    const inA: RawEvent = makeEvent({
+      id: 'eth:in-aaa',
+      source: 'eth',
+      timestamp: T,
+      type: 'crypto_in',
+      legs: [{ asset: 'ETH', amount: '2.0' }],
+    });
+
+    const ctx = makeContext();
+
+    const result1 = classify([out, inA, inB], [], ctx, DEFAULT_RULES);
+    const result2 = classify([out, inB, inA], [], ctx, DEFAULT_RULES);
+
+    const st1 = result1.entries.filter(e => e.type === 'transfer_self');
+    const st2 = result2.entries.filter(e => e.type === 'transfer_self');
+
+    expect(st1).toHaveLength(1);
+    expect(st2).toHaveLength(1);
+
+    // Both orderings must pair with the lexicographically smaller ID
+    expect(st1[0]!.rawEventIds).toContain('eth:in-aaa');
+    expect(st2[0]!.rawEventIds).toContain('eth:in-aaa');
+
+    // Entry IDs must be identical across both orderings
+    expect(st1[0]!.id).toBe(st2[0]!.id);
+  });
+
+  it('matches when out has a same-asset fee leg (fee-aware amount comparison)', () => {
+    // 0.01 BTC out with 0.0005 BTC fee — net 0.0095 BTC; should match 0.0095 BTC in
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-fee',
+      source: 'coinbase',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_out',
+      legs: [
+        { asset: 'BTC', amount: '-0.01' },
+        { asset: 'BTC', amount: '-0.0005', feeFlag: true },
+      ],
+    });
+
+    const inEvt: RawEvent = makeEvent({
+      id: 'eth:in-fee',
+      source: 'eth',
+      timestamp: new Date('2024-01-10T08:03:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '0.0095' }],
+    });
+
+    const ctx = makeContext();
+    const result = classify([out, inEvt], [], ctx, DEFAULT_RULES);
+
+    const selfTransfers = result.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers).toHaveLength(1);
+    expect(selfTransfers[0]!.rawEventIds).toContain('cb:out-fee');
+    expect(selfTransfers[0]!.rawEventIds).toContain('eth:in-fee');
+  });
+
+  it('does not pair an out whose same-asset fee leg consumes the entire principal (net ≤ 0)', () => {
+    // Principal 0.0005 BTC, fee 0.0005 BTC → net = 0.  Should NOT produce a transfer_self.
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-zero-net',
+      source: 'coinbase',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_out',
+      legs: [
+        { asset: 'BTC', amount: '-0.0005' },
+        { asset: 'BTC', amount: '-0.0005', feeFlag: true },
+      ],
+    });
+
+    const inEvt: RawEvent = makeEvent({
+      id: 'eth:in-zero-net',
+      source: 'eth',
+      timestamp: new Date('2024-01-10T08:03:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '0.0005' }],
+    });
+
+    const ctx = makeContext();
+    const result = classify([out, inEvt], [], ctx, DEFAULT_RULES);
+
+    // Net principal of out is 0 — must not be paired
+    const selfTransfers = result.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers).toHaveLength(0);
+  });
+
+  it('does not pair an out whose same-asset fee exceeds the principal (net < 0)', () => {
+    // Principal 0.0003 BTC, fee 0.0005 BTC → net = -0.0002.  Must not pair.
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-neg-net',
+      source: 'coinbase',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_out',
+      legs: [
+        { asset: 'BTC', amount: '-0.0003' },
+        { asset: 'BTC', amount: '-0.0005', feeFlag: true },
+      ],
+    });
+
+    const inEvt: RawEvent = makeEvent({
+      id: 'eth:in-neg-net',
+      source: 'eth',
+      timestamp: new Date('2024-01-10T08:03:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '0.0003' }],
+    });
+
+    const ctx = makeContext();
+    const result = classify([out, inEvt], [], ctx, DEFAULT_RULES);
+
+    const selfTransfers = result.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers).toHaveLength(0);
+  });
+
+  it('does not subtract cross-asset gas when comparing amounts', () => {
+    // ETH out with ETH gas fee — amounts match without issue (gas same asset)
+    // But a BTC out with ETH gas fee: the ETH gas should NOT be subtracted from the BTC principal.
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-cross-gas',
+      source: 'coinbase',
+      timestamp: new Date('2024-01-10T08:00:00Z'),
+      type: 'crypto_out',
+      legs: [
+        { asset: 'BTC', amount: '-1.0' },
+        { asset: 'ETH', amount: '-0.002', feeFlag: true }, // cross-asset gas
+      ],
+    });
+
+    const inEvt: RawEvent = makeEvent({
+      id: 'eth:in-cross-gas',
+      source: 'eth',
+      timestamp: new Date('2024-01-10T08:03:00Z'),
+      type: 'crypto_in',
+      legs: [{ asset: 'BTC', amount: '1.0' }],
+    });
+
+    const ctx = makeContext();
+    const result = classify([out, inEvt], [], ctx, DEFAULT_RULES);
+
+    // Should still match — cross-asset gas not subtracted, amounts equal
+    const selfTransfers = result.entries.filter(e => e.type === 'transfer_self');
+    expect(selfTransfers).toHaveLength(1);
+    expect(selfTransfers[0]!.rawEventIds).toContain('cb:out-cross-gas');
+    expect(selfTransfers[0]!.rawEventIds).toContain('eth:in-cross-gas');
+  });
+
+  it('is invariant under input permutation (permutation invariance)', () => {
+    // Three independent cross-source pairs (no own addresses, so Rule 02 never fires)
+    const T1 = new Date('2024-03-01T09:00:00Z');
+    const T2 = new Date('2024-03-02T14:00:00Z');
+    const T3 = new Date('2024-03-03T18:00:00Z');
+
+    // Amount diffs relative to the out leg:
+    //   Pair A: |1.0 - 0.997| / 1.0   = 0.3%  — well within default 1% tolerance
+    //   Pair B: |0.5 - 0.4975| / 0.5  = 0.5%  — within default 1% tolerance
+    //   Pair C: |0.3 - 0.299| / 0.3   ≈ 0.33% — within default 1% tolerance
+    const events: RawEvent[] = [
+      makeEvent({ id: 'cb:out-A', source: 'coinbase', timestamp: T1, type: 'crypto_out', legs: [{ asset: 'ETH', amount: '-1.0' }] }),
+      makeEvent({ id: 'eth:in-A', source: 'eth',      timestamp: new Date(T1.getTime() + 90_000), type: 'crypto_in',  legs: [{ asset: 'ETH', amount: '0.997' }] }),
+
+      makeEvent({ id: 'cb:out-B', source: 'coinbase', timestamp: T2, type: 'crypto_out', legs: [{ asset: 'BTC', amount: '-0.5' }] }),
+      makeEvent({ id: 'eth:in-B', source: 'eth',      timestamp: new Date(T2.getTime() + 120_000), type: 'crypto_in',  legs: [{ asset: 'BTC', amount: '0.4975' }] }),
+
+      makeEvent({ id: 'cb:out-C', source: 'coinbase', timestamp: T3, type: 'crypto_out', legs: [{ asset: 'ETH', amount: '-0.3' }] }),
+      makeEvent({ id: 'eth:in-C', source: 'eth',      timestamp: new Date(T3.getTime() + 60_000),  type: 'crypto_in',  legs: [{ asset: 'ETH', amount: '0.299' }] }),
+    ];
+
+    const ctx = makeContext({ crossSourceMatchWindowSeconds: 1800, crossSourceAmountTolerance: 0.01 });
+
+    const classify1 = classify(events, [], ctx, DEFAULT_RULES);
+    // Reverse the entire input
+    const classify2 = classify([...events].reverse(), [], ctx, DEFAULT_RULES);
+    // Shuffle: move B pair to front
+    const shuffled = [events[2]!, events[3]!, events[0]!, events[1]!, events[4]!, events[5]!];
+    const classify3 = classify(shuffled, [], ctx, DEFAULT_RULES);
+
+    // Sort each result by entry id for comparison
+    const sorted = (entries: typeof classify1.entries) =>
+      [...entries].sort((a, b) => a.id.localeCompare(b.id));
+
+    const r1 = sorted(classify1.entries.filter(e => e.type === 'transfer_self'));
+    const r2 = sorted(classify2.entries.filter(e => e.type === 'transfer_self'));
+    const r3 = sorted(classify3.entries.filter(e => e.type === 'transfer_self'));
+
+    expect(r1).toHaveLength(3);
+    expect(r2).toHaveLength(3);
+    expect(r3).toHaveLength(3);
+
+    for (let i = 0; i < r1.length; i++) {
+      expect(r2[i]!.id).toBe(r1[i]!.id);
+      expect(r3[i]!.id).toBe(r1[i]!.id);
+      expect(r2[i]!.type).toBe(r1[i]!.type);
+      expect(r3[i]!.type).toBe(r1[i]!.type);
+      expect(r2[i]!.rawEventIds.sort()).toEqual(r1[i]!.rawEventIds.sort());
+      expect(r3[i]!.rawEventIds.sort()).toEqual(r1[i]!.rawEventIds.sort());
+    }
+
+    // Explicit tolerance check: each in-leg is within the configured 1% of its out-leg.
+    // This documents that the fixture's pairability is intentional, not incidental.
+    // Pair A: diff = |1.0 - 0.997| / 1.0 = 0.3%; Pair B: 0.5%; Pair C: ~0.33% — all < 1%.
+    const pairAmounts: Array<{ out: number; in: number }> = [
+      { out: 1.0, in: 0.997 },
+      { out: 0.5, in: 0.4975 },
+      { out: 0.3, in: 0.299 },
+    ];
+    for (const { out: outAmt, in: inAmt } of pairAmounts) {
+      const relDiff = Math.abs(outAmt - inAmt) / Math.max(outAmt, inAmt);
+      expect(relDiff).toBeLessThan(0.01); // each pair is within the configured 1% tolerance
+    }
+  });
+
+  it('respects the configurable time window', () => {
+    // Two events 20 minutes apart
+    const T = new Date('2024-06-01T10:00:00Z');
+    const T20m = new Date('2024-06-01T10:20:00Z'); // 1200s apart
+
+    const out: RawEvent = makeEvent({
+      id: 'cb:out-window',
+      source: 'coinbase',
+      timestamp: T,
+      type: 'crypto_out',
+      legs: [{ asset: 'ETH', amount: '-1.0' }],
+    });
+
+    const inEvt: RawEvent = makeEvent({
+      id: 'eth:in-window',
+      source: 'eth',
+      timestamp: T20m,
+      type: 'crypto_in',
+      legs: [{ asset: 'ETH', amount: '1.0' }],
+    });
+
+    // Default window (1800s) — should match
+    const ctxDefault = makeContext();
+    const resultDefault = classify([out, inEvt], [], ctxDefault, DEFAULT_RULES);
+    expect(resultDefault.entries.filter(e => e.type === 'transfer_self')).toHaveLength(1);
+
+    // Narrow window (600s) — should NOT match
+    const ctxNarrow = makeContext({ crossSourceMatchWindowSeconds: 600 });
+    const resultNarrow = classify([out, inEvt], [], ctxNarrow, DEFAULT_RULES);
+    expect(resultNarrow.entries.filter(e => e.type === 'transfer_self')).toHaveLength(0);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

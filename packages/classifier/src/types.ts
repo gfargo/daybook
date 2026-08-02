@@ -44,6 +44,17 @@ export interface ClassifierContext {
   dexRouters: Map<string, DexRouterEntry>;
   /** Bridge contract addresses — key is lowercased address. */
   bridges: Map<string, BridgeEntry>;
+  /**
+   * Maximum time difference in seconds for Rule 03 cross-source matching.
+   * Default: 1800 (30 minutes). Increase for slower chains or exchanges with
+   * long confirmation times.
+   */
+  crossSourceMatchWindowSeconds?: number;
+  /**
+   * Maximum relative amount difference for Rule 03 cross-source matching.
+   * Default: 0.01 (1%). Set higher to accommodate large withdrawal fees.
+   */
+  crossSourceAmountTolerance?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
