@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import Decimal from 'decimal.js';
 import { applyWashSaleFlags } from './wash-sale.js';
 import type { AcquisitionRecord } from './wash-sale.js';
 import type { DisposalResult } from './types.js';
@@ -288,6 +289,119 @@ describe('applyWashSaleFlags', () => {
 
       // June 15 to July 15 = 30 calendar days → within window
       expect(result[0]!.washSaleFlag).toBe(true);
+    });
+  });
+
+  // ─── Parity / scale test ─────────────────────────────────────────────
+  // Verifies that the indexed implementation produces identical washSaleFlag
+  // results to a straightforward naïve reference on a large, deterministic
+  // dataset.  This is the CI regression guard for the O(A+D·W) rewrite.
+  describe('parity with naïve reference on large dataset', () => {
+    /**
+     * Deterministic LCG pseudo-random number generator so the test is
+     * reproducible across environments without any external library.
+     * Returns a function that yields floats in [0, 1).
+     */
+    function makeLcg(seed: number): () => number {
+      // Numerical Recipes LCG constants
+      const a = 1_664_525;
+      const c = 1_013_904_223;
+      const m = 2 ** 32;
+      let state = seed >>> 0;
+      return () => {
+        state = (a * state + c) >>> 0;
+        return state / m;
+      };
+    }
+
+    /** Naïve O(D×A) reference — equivalent to the original implementation. */
+    function naiveApplyWashSaleFlags(
+      disposals: DisposalResult[],
+      acquisitions: ReadonlyArray<AcquisitionRecord>,
+    ): DisposalResult[] {
+      const MS = 86_400_000;
+      const WINDOW = 30;
+      const dayOf = (d: Date) => Math.floor(d.getTime() / MS);
+      return disposals.map((d) => {
+        if (new Decimal(d.gainLoss).gte(0)) return { ...d, washSaleFlag: false };
+        const disposalDay = dayOf(d.disposedAt);
+        const flag = acquisitions.some(
+          (a) => a.asset === d.asset && Math.abs(dayOf(a.acquiredAt) - disposalDay) <= WINDOW,
+        );
+        return { ...d, washSaleFlag: flag };
+      });
+    }
+
+    it('produces identical flags to the naïve reference for 2 000 disposals × 5 000 acquisitions', () => {
+      const rand = makeLcg(0xdeadbeef);
+
+      const assets = ['BTC', 'ETH', 'SOL', 'MATIC', 'AVAX'];
+      // Epoch base: 2024-01-01 UTC
+      const BASE_DAY = Math.floor(new Date('2024-01-01T00:00:00Z').getTime() / 86_400_000);
+      const SPREAD = 500; // days spread around base
+
+      const acquisitions: AcquisitionRecord[] = Array.from({ length: 5_000 }, () => ({
+        asset: assets[Math.floor(rand() * assets.length)]!,
+        acquiredAt: new Date((BASE_DAY + Math.floor(rand() * SPREAD * 2 - SPREAD)) * 86_400_000),
+      }));
+
+      const disposals: DisposalResult[] = Array.from({ length: 2_000 }, (_, i) => {
+        // Mix losses (~70%) and gains (~30%) so the short-circuit path is exercised
+        const isLoss = rand() < 0.7;
+        return makeDisposal({
+          asset: assets[Math.floor(rand() * assets.length)]!,
+          gainLoss: isLoss ? (-1 * (rand() * 1000 + 1)).toFixed(2) : (rand() * 1000 + 1).toFixed(2),
+          disposedAt: new Date((BASE_DAY + Math.floor(rand() * SPREAD * 2 - SPREAD)) * 86_400_000),
+          sourceEntryId: `entry-${i}`,
+        });
+      });
+
+      const expected = naiveApplyWashSaleFlags(disposals, acquisitions);
+      const actual = applyWashSaleFlags(disposals, acquisitions);
+
+      expect(actual).toHaveLength(expected.length);
+      for (let i = 0; i < expected.length; i++) {
+        expect(actual[i]!.washSaleFlag).toBe(expected[i]!.washSaleFlag);
+      }
+    });
+
+    it('boundary parity: exactly-30-day and 31-day edges hold across many assets', () => {
+      // For each of several assets build one disposal and acquisitions at
+      // exactly -30, -31, +30, +31 days relative to the disposal. Confirm
+      // the indexed result matches the naïve result for every case.
+      const rand = makeLcg(0xcafebabe);
+      const ASSET_COUNT = 20;
+      const BASE = new Date('2024-06-01T00:00:00Z');
+
+      const assetNames = Array.from({ length: ASSET_COUNT }, (_, i) => `TOKEN${i}`);
+
+      const disposals: DisposalResult[] = assetNames.map((asset, i) =>
+        makeDisposal({
+          asset,
+          gainLoss: '-1',
+          disposedAt: new Date(BASE.getTime() + i * 86_400_000 * 2),
+          sourceEntryId: `disp-${i}`,
+        }),
+      );
+
+      const acquisitions: AcquisitionRecord[] = disposals.flatMap((d) => [
+        { asset: d.asset, acquiredAt: daysFrom(d.disposedAt, -30) },
+        { asset: d.asset, acquiredAt: daysFrom(d.disposedAt, -31) },
+        { asset: d.asset, acquiredAt: daysFrom(d.disposedAt, 30) },
+        { asset: d.asset, acquiredAt: daysFrom(d.disposedAt, 31) },
+        // random noise from other assets
+        { asset: assetNames[Math.floor(rand() * assetNames.length)]!, acquiredAt: daysFrom(d.disposedAt, 5) },
+      ]);
+
+      const expected = naiveApplyWashSaleFlags(disposals, acquisitions);
+      const actual = applyWashSaleFlags(disposals, acquisitions);
+
+      expect(actual).toHaveLength(expected.length);
+      for (let i = 0; i < expected.length; i++) {
+        // -30 and +30 are inside the window → true; -31 and +31 are outside
+        // but -30/+30 acquisitions exist so all should be true here
+        expect(actual[i]!.washSaleFlag).toBe(expected[i]!.washSaleFlag);
+      }
     });
   });
 });
