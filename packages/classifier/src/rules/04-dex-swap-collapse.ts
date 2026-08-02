@@ -12,12 +12,30 @@
  */
 
 import type { AssetLeg, LedgerEntry, RawEvent } from '@daybook/ledger';
+import { CHAIN_ID_BY_SOURCE } from '@daybook/ledger';
 import type {
     ClassifierContext,
     ClassifierRule,
     ClassifierRuleResult,
+    DexRouterEntry,
 } from '../types.js';
 import { entryId } from '../runner.js';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Return the catalog entry for the DEX router that `evt` interacted with,
+ * or `undefined` if the event has no counterparty, comes from a non-EVM
+ * source, or the address is not in the catalog for that chain.
+ */
+function routerFor(evt: RawEvent, ctx: ClassifierContext): DexRouterEntry | undefined {
+  if (!evt.counterparty) return undefined;
+  const chainId = CHAIN_ID_BY_SOURCE[evt.source];
+  if (chainId === undefined) return undefined;
+  return ctx.dexRouters.get(`${chainId}:${evt.counterparty.toLowerCase()}`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Rule implementation
@@ -46,13 +64,19 @@ export const dexSwapCollapse: ClassifierRule = {
     }
 
     for (const [txHash, group] of byTxHash) {
-      // Check if any event's counterparty matches a DEX router
-      const hasDexRouter = group.some(evt => {
-        if (!evt.counterparty) return false;
-        return context.dexRouters.has(evt.counterparty.toLowerCase());
-      });
+      // Find the first event whose counterparty matches a DEX router on the
+      // same chain — one pass resolves both the "has router" guard and the
+      // router entry needed for the reason string.
+      let router: DexRouterEntry | undefined;
+      for (const evt of group) {
+        const r = routerFor(evt, context);
+        if (r !== undefined) {
+          router = r;
+          break;
+        }
+      }
 
-      if (!hasDexRouter) continue;
+      if (router === undefined) continue;
       if (group.length < 2) continue;
 
       const ids = group.map(e => e.id);
@@ -75,16 +99,7 @@ export const dexSwapCollapse: ClassifierRule = {
         }
       }
 
-      // Find the DEX router protocol for the reason string
-      const routerEvt = group.find(
-        e => e.counterparty && context.dexRouters.has(e.counterparty.toLowerCase()),
-      );
-      const router = routerEvt?.counterparty
-        ? context.dexRouters.get(routerEvt.counterparty.toLowerCase())
-        : undefined;
-      const routerLabel = router
-        ? `${router.protocol} ${router.version}`
-        : 'unknown DEX';
+      const routerLabel = `${router.protocol} ${router.version}`;
 
       const entry: LedgerEntry = {
         id: entryId(ids),

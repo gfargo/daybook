@@ -17,6 +17,7 @@
  */
 
 import type { SourceId } from '@daybook/ledger';
+import { CHAIN_ID_BY_SOURCE as _CHAIN_ID_BY_SOURCE } from '@daybook/ledger';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Chain identification
@@ -34,15 +35,16 @@ import type { SourceId } from '@daybook/ledger';
  */
 export type ChainId = number;
 
-/** Map daybook source IDs to their canonical chain IDs. */
-export const CHAIN_ID_BY_SOURCE: Record<string, ChainId> = {
-  eth: 1,
-  polygon: 137,
-  arbitrum: 42161,
-  optimism: 10,
-  base: 8453,
-  bnb: 56,
-} as const;
+/**
+ * Map daybook source IDs to their canonical chain IDs.
+ * Sourced from @daybook/ledger to avoid duplication.
+ *
+ * Typed as `Readonly<Partial<Record<SourceId, ChainId>>>` to preserve
+ * undefined-safety: non-EVM sources (coinbase, kraken, etc.) are absent
+ * and consumers must guard on undefined.
+ */
+export const CHAIN_ID_BY_SOURCE: Readonly<Partial<Record<SourceId, ChainId>>> =
+  _CHAIN_ID_BY_SOURCE;
 
 /** Reverse map: chain ID → daybook source ID. */
 export const SOURCE_BY_CHAIN_ID: Record<ChainId, SourceId> = {

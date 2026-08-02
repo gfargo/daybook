@@ -9,6 +9,7 @@
  */
 
 import type { LedgerEntry, RawEvent } from '@daybook/ledger';
+import { CHAIN_ID_BY_SOURCE } from '@daybook/ledger';
 import type {
     ClassifierContext,
     ClassifierRule,
@@ -46,11 +47,13 @@ export const bridgeDetection: ClassifierRule = {
     const entries: LedgerEntry[] = [];
     const consumedEventIds = new Set<string>();
 
-    // Find outbound events to bridge addresses
+    // Find outbound events to bridge addresses (chain-scoped lookup)
     const outbounds = events.filter(evt => {
       if (evt.type !== 'crypto_out') return false;
       if (!evt.counterparty) return false;
-      return context.bridges.has(evt.counterparty.toLowerCase());
+      const chainId = CHAIN_ID_BY_SOURCE[evt.source];
+      if (chainId === undefined) return false;
+      return context.bridges.has(`${chainId}:${evt.counterparty.toLowerCase()}`);
     });
 
     // Find inbound events (potential bridge receives)
@@ -80,7 +83,10 @@ export const bridgeDetection: ClassifierRule = {
 
       if (match) {
         const ids = [out.id, match.id];
-        const bridge = context.bridges.get(out.counterparty!.toLowerCase());
+        const outChainId = CHAIN_ID_BY_SOURCE[out.source];
+        const bridge = out.counterparty && outChainId !== undefined
+          ? context.bridges.get(`${outChainId}:${out.counterparty.toLowerCase()}`)
+          : undefined;
         const bridgeLabel = bridge
           ? `${bridge.protocol} ${bridge.version}`
           : 'unknown bridge';

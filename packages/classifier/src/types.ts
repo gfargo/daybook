@@ -40,9 +40,9 @@ export interface ClassifierContext {
   ownAddresses: string[];
   /** All configured account IDs. */
   accountIds: string[];
-  /** DEX router addresses — key is lowercased address. */
+  /** DEX router addresses — key is `${chainId}:${lowercasedAddress}`. */
   dexRouters: Map<string, DexRouterEntry>;
-  /** Bridge contract addresses — key is lowercased address. */
+  /** Bridge contract addresses — key is `${chainId}:${lowercasedAddress}`. */
   bridges: Map<string, BridgeEntry>;
   /**
    * Maximum time difference in seconds for Rule 03 cross-source matching.
