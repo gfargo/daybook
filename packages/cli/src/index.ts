@@ -92,6 +92,7 @@ program
   .option('--account <id>', 'target account (defaults to first matching source)')
   .option('--include-failed-gas', 'capture gas from failed EVM transactions (requires ETHERSCAN_API_KEY)')
   .option('--from <date|block>', 'sync from this date (Coinbase API) or date/block number (EVM)')
+  .option('--reset-cursor', 'move the stored Coinbase sync cursor forward to --from (otherwise --from is a one-shot fetch that does not clobber the stored cursor)')
   .option('--config <path>', 'config file path')
   .addHelpText('after', `
 Examples:

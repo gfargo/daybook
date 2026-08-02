@@ -24,6 +24,7 @@ export interface SyncCoinbaseApiResult {
   totalRows: number;
   countsByType: Record<string, number>;
   unparsedRowCount: number;
+  earliestUnparsedAt?: Date;
   warnings: string[];
   fetched: {
     accounts: number;
@@ -84,6 +85,7 @@ export function mapCoinbaseApiData(
   const grouped = groupRecords(options.records);
   const events: RawEvent[] = [];
   let unparsed = 0;
+  let earliestUnparsed: Date | null = null;
 
   for (const group of grouped) {
     const fill = findMatchingFill(group.records, fillIndex);
@@ -97,6 +99,10 @@ export function mapCoinbaseApiData(
       events.push(event);
     } else {
       unparsed++;
+      const ts = earliestTransactionTimestamp(group.records);
+      if (ts && (!earliestUnparsed || ts.getTime() < earliestUnparsed.getTime())) {
+        earliestUnparsed = ts;
+      }
     }
   }
 
@@ -115,6 +121,7 @@ export function mapCoinbaseApiData(
     totalRows: options.records.length,
     countsByType: countByType(events),
     unparsedRowCount: unparsed,
+    ...(earliestUnparsed ? { earliestUnparsedAt: earliestUnparsed } : {}),
     warnings,
     fetched: metadata.fetched ?? {
       accounts: new Set(options.records.map(r => r.account.id)).size,

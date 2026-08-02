@@ -43,7 +43,11 @@ export interface SyncOptions {
   config?: string;
   includeFailedGas?: boolean;
   from?: string;
+  resetCursor?: boolean;
 }
+
+// Re-fetched on every Coinbase API sync so back-dated/settling records aren't permanently skipped; dedup on insert makes the overlap cheap.
+const SYNC_OVERLAP_SECONDS = 7 * 24 * 60 * 60;
 
 export async function syncCommand(opts: SyncOptions): Promise<void> {
   const config = loadConfig(opts.config);
@@ -375,13 +379,28 @@ async function syncCoinbaseApi(
   });
 
   const insertResult = repo.insertRawEvents(result.events);
-  const lastSyncedAt = latestEventTimestamp(result.events)
-    ?? Math.floor(Date.now() / 1000);
-  repo.upsertSyncState({
-    source: 'coinbase',
-    accountId,
-    lastSyncedAt,
-  });
+
+  const storedCursor = repo.getSyncState('coinbase', accountId)?.lastSyncedAt;
+  const watermark = computeWatermark(result);
+  const fromSeconds = opts.from ? Math.floor(new Date(opts.from).getTime() / 1000) : undefined;
+  const forwardGap = fromSeconds !== undefined && !opts.resetCursor
+    && storedCursor !== undefined && fromSeconds > storedCursor;
+
+  if (watermark === undefined) {
+    // Empty (or fully-unparsed) result: leave the cursor unchanged so the
+    // window gets re-scanned next sync instead of quietly advancing.
+  } else if (forwardGap) {
+    console.warn(
+      '--from is ahead of the stored Coinbase sync cursor; leaving the cursor unchanged so the gap is not skipped. '
+      + 'Pass --reset-cursor to move it forward, or omit --from to sync the gap.',
+    );
+  } else {
+    repo.upsertSyncState({
+      source: 'coinbase',
+      accountId,
+      lastSyncedAt: watermark,
+    });
+  }
 
   const dbCounts = repo.countByType({ accountId });
   renderCsvSyncOutput({
@@ -412,13 +431,28 @@ function resolveCoinbaseApiFrom(
 
   const state = repo.getSyncState('coinbase', accountId);
   return state?.lastSyncedAt
-    ? new Date(state.lastSyncedAt * 1000)
+    ? new Date((state.lastSyncedAt - SYNC_OVERLAP_SECONDS) * 1000)
     : undefined;
 }
 
 function latestEventTimestamp(events: ReadonlyArray<{ timestamp: Date }>): number | undefined {
   if (events.length === 0) return undefined;
   return Math.max(...events.map(event => Math.floor(event.timestamp.getTime() / 1000)));
+}
+
+// Max parsed-event timestamp, capped before the earliest unparsed row so unparsed rows get retried.
+function computeWatermark(result: {
+  events: ReadonlyArray<{ timestamp: Date }>;
+  earliestUnparsedAt?: Date;
+}): number | undefined {
+  const parsedMax = latestEventTimestamp(result.events);
+  const unparsedCap = result.earliestUnparsedAt
+    ? Math.floor(result.earliestUnparsedAt.getTime() / 1000) - 1
+    : undefined;
+
+  if (parsedMax === undefined) return undefined;
+  if (unparsedCap === undefined) return parsedMax;
+  return Math.min(parsedMax, unparsedCap);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

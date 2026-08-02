@@ -108,6 +108,51 @@ describe('Coinbase API mapper', () => {
     expect(result.warnings).toContain(
       'Skipped Coinbase transaction pending-1 with status pending',
     );
+    expect(result.earliestUnparsedAt?.toISOString()).toBe('2024-01-02T01:00:00.000Z');
+  });
+
+  it('tracks the earliest unparsed timestamp across multiple unparsed groups', () => {
+    const result = mapCoinbaseApiData({
+      accountId: 'main-coinbase',
+      records: [
+        record({
+          id: 'pending-later',
+          type: 'send',
+          status: 'pending',
+          created_at: '2024-01-05T00:00:00Z',
+          amount: { amount: '-1', currency: 'ETH' },
+        }, 'ETH'),
+        record({
+          id: 'pending-earlier',
+          type: 'send',
+          status: 'pending',
+          created_at: '2024-01-02T00:00:00Z',
+          amount: { amount: '-1', currency: 'ETH' },
+        }, 'ETH'),
+      ],
+    });
+
+    expect(result.events).toHaveLength(0);
+    expect(result.unparsedRowCount).toBe(2);
+    expect(result.earliestUnparsedAt?.toISOString()).toBe('2024-01-02T00:00:00.000Z');
+  });
+
+  it('omits earliestUnparsedAt when every group parses successfully', () => {
+    const result = mapCoinbaseApiData({
+      accountId: 'main-coinbase',
+      records: [
+        record({
+          id: 'buy-1',
+          type: 'buy',
+          status: 'completed',
+          created_at: '2024-01-01T00:00:00Z',
+          amount: { amount: '0.01', currency: 'BTC' },
+        }, 'BTC'),
+      ],
+    });
+
+    expect(result.unparsedRowCount).toBe(0);
+    expect(result.earliestUnparsedAt).toBeUndefined();
   });
 });
 
