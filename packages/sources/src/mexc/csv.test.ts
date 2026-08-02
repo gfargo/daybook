@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import Decimal from 'decimal.js';
 import { parseMexcCsv } from './csv.js';
 
 const accountId = 'main-mexc';
@@ -191,5 +192,51 @@ describe('parseMexcCsv', () => {
 
     const result = parseMexcCsv(csv, { accountId });
     expect(result.events.map((e) => e.txHash)).toEqual(['0xb', '0xc', '0xa']);
+  });
+
+  it('withdrawal with Request only (no Settlement) — total outflow equals request, not request+fee', () => {
+    const csv = [
+      'UID,Status,Time,Crypto,Network,Request Amount,Withdrawal Address,memo,TxID,Trading Fee,Settlement Amount,Withdrawal Descriptions',
+      '123,Withdrawal Successful,2024-06-01 09:00:00,BTC,Bitcoin,1,addr,,0xwtx2,0.0005,,Normal',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    const legs = result.events[0]?.legs ?? [];
+    // Principal leg should be request - fee = 1 - 0.0005 = 0.9995
+    expect(legs.find(l => !l.feeFlag)).toMatchObject({ asset: 'BTC', amount: '-0.9995' });
+    // Fee leg should be the fee
+    expect(legs.find(l => l.feeFlag)).toMatchObject({ asset: 'BTC', amount: '-0.0005', feeFlag: true });
+    // Total outflow = 0.9995 + 0.0005 = 1.0 (not 1.0005)
+    const totalOutflow = legs
+      .map(l => new Decimal(l.amount))
+      .reduce((acc, v) => acc.plus(v), new Decimal(0));
+    expect(totalOutflow.toString()).toBe('-1');
+  });
+
+  it('parses packed fee "1,050.5USDT" with thousands separator', () => {
+    const csv = [
+      'Pairs,Time,Side,Filled Price,Executed Amount,Total,Fee,Role',
+      'BTCUSDT,2024-07-01 10:00:00,Sell,60000,1,60000,1050.5USDT,Taker',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    expect(feeLeg).toMatchObject({ asset: 'USDT', amount: '-1050.5', feeFlag: true });
+  });
+
+  it('preserves negative fee (maker rebate) in trade as a positive credit leg', () => {
+    const csv = [
+      'Pairs,Time,Side,Filled Price,Executed Amount,Total,Fee,Role',
+      'ETHUSDT,2024-08-01 10:00:00,Sell,2000,1,2000,-1.5USDT,Maker',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    // -1.5 USDT fee (rebate) → negated → positive 1.5 USDT credit
+    expect(feeLeg).toMatchObject({ asset: 'USDT', amount: '1.5', feeFlag: true });
   });
 });

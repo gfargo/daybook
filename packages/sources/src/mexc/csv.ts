@@ -40,6 +40,7 @@ import {
   hashString,
   normalizeAsset,
   parseAmount,
+  parsePackedFee,
   parseCsvRows,
   parseTimestamp,
   pick,
@@ -198,8 +199,13 @@ function buildTradeEvent(
   // Fee: packed string "0.12345USDT" or bare number (always quote asset).
   if (feeRaw) {
     const fee = parsePackedFee(feeRaw, quote);
-    if (fee && fee.amount.abs().gt(0)) {
-      legs.push(assetLeg(fee.asset, fee.amount.abs().negated(), true));
+    if (fee && fee.asset && fee.amount.abs().gt(0)) {
+      // Preserve sign: a negative fee is a rebate (credit), so we negate
+      // to produce a positive (credit) leg; a positive fee is a cost, so
+      // we negate to produce a negative (debit) leg.
+      legs.push(assetLeg(fee.asset, fee.amount.negated(), true));
+    } else if (fee && !fee.asset) {
+      warnings.push(`Row ${row.rowNumber}: MEXC trade fee "${feeRaw}" has no asset and no default — fee leg dropped`);
     }
   }
 
@@ -221,27 +227,6 @@ function buildTradeEvent(
 
 function baseAmount(d: Decimal): string {
   return d.toFixed();
-}
-
-/**
- * Parse a MEXC packed fee cell like "0.12345USDT" or "0.12345".
- *
- * Returns `undefined` if the value is empty or unparsable. When the cell
- * is bare numeric (no trailing ticker), uses `defaultAsset` (the quote
- * currency) per MEXC's documented behavior.
- */
-function parsePackedFee(
-  value: string,
-  defaultAsset: string,
-): { amount: Decimal; asset: string } | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const match = /^(-?\d+(?:\.\d+)?)\s*([A-Za-z][A-Za-z0-9]*)?$/.exec(trimmed);
-  if (!match) return undefined;
-  const amount = parseAmount(match[1]);
-  if (!amount) return undefined;
-  const asset = match[2] ? normalizeAsset(match[2])! : defaultAsset;
-  return { amount, asset };
 }
 
 // ─── Spot order history (no fees) ───────────────────────────────────────
@@ -373,11 +358,26 @@ function buildWithdrawalEvent(
     return undefined;
   }
 
-  // Prefer Settlement Amount (post-fee) as the principal outbound leg.
-  const principal = settlement ?? request!;
-  const legs: AssetLeg[] = [assetLeg(coin, principal.abs().negated())];
-  if (fee && fee.abs().gt(0)) {
-    legs.push(assetLeg(coin, fee.abs().negated(), true));
+  const legs: AssetLeg[] = [];
+  if (settlement) {
+    // Settlement Amount is already post-fee; add the principal as-is and the
+    // fee leg separately. Total outflow = settlement + fee = request.
+    legs.push(assetLeg(coin, settlement.abs().negated()));
+    if (fee && fee.abs().gt(0)) {
+      legs.push(assetLeg(coin, fee.abs().negated(), true));
+    }
+  } else {
+    // Fallback: only Request Amount is available (pre-fee). To avoid
+    // double-counting, net out the fee from the principal so that:
+    //   principal leg + fee leg = request - fee + fee = request
+    // If no fee is known, emit the full request as the principal.
+    if (fee && fee.abs().gt(0)) {
+      const netPrincipal = request!.abs().minus(fee.abs());
+      legs.push(assetLeg(coin, netPrincipal.negated()));
+      legs.push(assetLeg(coin, fee.abs().negated(), true));
+    } else {
+      legs.push(assetLeg(coin, request!.abs().negated()));
+    }
   }
 
   return {

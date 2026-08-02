@@ -243,3 +243,50 @@ export function hashRows(rows: ReadonlyArray<CsvRow>): string {
 export function hashString(seed: string): string {
   return createHash('sha256').update(seed).digest('hex').slice(0, 16);
 }
+
+/**
+ * Parse a packed "<amount><TICKER>" fee cell into a structured result.
+ *
+ * Handles the common exchange pattern where a fee is packed into a single
+ * cell, e.g.:
+ *   - `"0.001BTC"`         → `{ amount: Decimal(0.001), asset: "BTC" }`
+ *   - `"1,050.5USDT"`      → `{ amount: Decimal(1050.5), asset: "USDT" }`
+ *   - `"1e3USDT"`          → `{ amount: Decimal(1000), asset: "USDT" }`
+ *   - `"600 USDT"`         → `{ amount: Decimal(600), asset: "USDT" }`
+ *   - `"1.5"`              → `{ amount: Decimal(1.5), asset: defaultAsset }`
+ *   - `"-1.5USDT"`         → `{ amount: Decimal(-1.5), asset: "USDT" }` (rebate)
+ *   - `"10EOS"`            → `{ amount: Decimal(10), asset: "EOS" }`
+ *
+ * The sign is preserved — callers should negate when building a cost leg
+ * and leave positive for rebates/credits.
+ *
+ * Returns `undefined` for empty, whitespace-only, or unparsable input.
+ * When the cell is bare numeric (no trailing ticker), uses `defaultAsset`
+ * when provided; returns `undefined` asset otherwise.
+ *
+ * Edge case — scientific notation with a ticker starting with "e":
+ * The regex captures `[eE][+-]?\d+` as part of the numeric group, so
+ * `1e3USDT` → number 1000, ticker USDT; `10EOS` → number 10, ticker EOS.
+ */
+export function parsePackedFee(
+  value: string | undefined,
+  defaultAsset?: string,
+): { amount: Decimal; asset?: string } | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  // Pattern: optional sign + digits (with commas) + optional decimal + optional
+  // scientific exponent, then optional whitespace, then optional ticker.
+  // The ticker group starts with a letter and is followed by alphanumerics.
+  const match = /^(-?[\d,]+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*([A-Za-z][A-Za-z0-9]*)?$/.exec(trimmed);
+  if (!match) return undefined;
+
+  const amount = parseAmount(match[1]);
+  if (!amount) return undefined;
+
+  const rawTicker = match[2];
+  const asset = rawTicker ? normalizeAsset(rawTicker) : defaultAsset;
+
+  return asset !== undefined ? { amount, asset } : { amount };
+}

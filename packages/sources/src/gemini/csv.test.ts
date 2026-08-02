@@ -124,4 +124,32 @@ describe('parseGeminiCsv', () => {
       'Gemini CSV header not recognized',
     );
   });
+
+  it('defaults fee asset to the row\'s own asset for single-asset rows (not USD)', () => {
+    // A withdrawal row with only BTC movement and a Fee amount but no Fee Currency.
+    // The fee should default to BTC (the row's asset), not USD.
+    const csv = [
+      'Date,Type,Symbol,Quantity,Fee,Trade ID',
+      '2024-06-01 10:00:00,Withdrawal,BTC,0.5,0.0005,gem-withdraw-1',
+    ].join('\n');
+
+    const result = parseGeminiCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    // Fee must be BTC (the row's own asset), not USD
+    expect(feeLeg).toMatchObject({ asset: 'BTC', amount: '-0.0005', feeFlag: true });
+  });
+
+  it('preserves negative fee (maker rebate) as a positive credit leg', () => {
+    const csv = [
+      'Date,Type,Symbol,Quantity,Price,Amount,Fee,Fee Currency,Trade ID',
+      '2024-07-01 10:00:00,Sell,ETHUSD,1,2000,2000,-1.5,USD,gem-rebate-1',
+    ].join('\n');
+
+    const result = parseGeminiCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    // -1.5 USD fee (rebate) → negated → positive 1.5 USD credit
+    expect(feeLeg).toMatchObject({ asset: 'USD', amount: '1.5', feeFlag: true });
+  });
 });

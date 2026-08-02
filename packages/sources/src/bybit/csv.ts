@@ -33,6 +33,7 @@ import {
   hashRows,
   normalizeAsset,
   parseAmount,
+  parsePackedFee,
   parseCsvRows,
   parseTimestamp,
   pick,
@@ -198,7 +199,6 @@ function buildSpotTradeGroup(
     const qty = parseAmount(pick(row, ['quantity', 'qty']));
     let execValue = parseAmount(pick(row, ['exec value', 'execvalue']));
     const price = parseAmount(pick(row, ['filled price', 'price']));
-    const fee = parseAmount(pick(row, ['fee']));
     const feeCurrency = normalizeAsset(pick(row, ['fee currency', 'feecurrency']));
 
     // Treat zero exec value as missing so the interpolation path fires for "0" rows too
@@ -221,9 +221,27 @@ function buildSpotTradeGroup(
         );
       }
     }
-    if (fee && feeCurrency) {
-      const current = feeBuckets.get(feeCurrency) ?? new Decimal(0);
-      feeBuckets.set(feeCurrency, current.plus(fee.abs()));
+    const feeRaw = pick(row, ['fee']);
+    if (feeRaw) {
+      // Use parsePackedFee so packed "0.001BTC" cells work.
+      // Use feeCurrency column as the default asset for bare numeric fees.
+      // If feeCurrency is also blank (bare number, no currency anywhere),
+      // we cannot determine the asset — warn instead of dropping silently.
+      const feeParsed = parsePackedFee(feeRaw, feeCurrency ?? undefined);
+      if (feeParsed && feeParsed.asset) {
+        // Accumulate signed: negative fee = rebate/credit.
+        const current = feeBuckets.get(feeParsed.asset) ?? new Decimal(0);
+        feeBuckets.set(feeParsed.asset, current.plus(feeParsed.amount));
+      } else if (feeParsed && !feeParsed.asset) {
+        // Has a parsable amount but no asset at all — warn, do not drop silently.
+        warnings.push(
+          `Bybit spot trade order ${orderId} row ${row.rowNumber}: fee "${feeRaw}" is a bare number with no Fee Currency — fee leg dropped`,
+        );
+      } else {
+        warnings.push(
+          `Bybit spot trade order ${orderId} row ${row.rowNumber}: fee value "${feeRaw}" could not be parsed — fee leg dropped`,
+        );
+      }
     }
   }
 
@@ -252,6 +270,7 @@ function buildSpotTradeGroup(
   legs.push(assetLeg(quote, isBuy ? quoteTotal.negated() : quoteTotal));
   for (const [feeAsset, feeAmount] of feeBuckets) {
     if (feeAmount.isZero()) continue;
+    // Negate the signed bucket: positive fee (cost) → negative leg; negative fee (rebate) → positive leg.
     legs.push(assetLeg(feeAsset, feeAmount.negated(), true));
   }
 

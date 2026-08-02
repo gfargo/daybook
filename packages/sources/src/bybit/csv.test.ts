@@ -247,4 +247,33 @@ describe('parseBybitCsv', () => {
     expect(result.events[0]?.legs[0]?.asset).toBe('SOL');
     expect(result.events[0]?.legs[1]?.asset).toBe('USDC');
   });
+
+  it('emits a warning (not silent drop) when fee is bare number with blank Fee Currency', () => {
+    const csv = [
+      'Order ID,Transaction ID,Filled Time,Symbol,Side,Filled Price,Quantity,Exec Value,Fee,Fee Currency',
+      'order-blankcur,trade-blankcur,2024-11-01 10:00:00,BTCUSDT,Buy,30000,0.001,30,0.0009,',
+    ].join('\n');
+
+    const result = parseBybitCsv(csv, { accountId });
+    // The trade itself should be produced
+    expect(result.events).toHaveLength(1);
+    // No fee leg should be added (asset unknown)
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    expect(feeLeg).toBeUndefined();
+    // But a warning must be present — not silently dropped
+    expect(result.warnings.some(w => w.includes('order-blankcur') && w.includes('fee'))).toBe(true);
+  });
+
+  it('preserves negative fee (maker rebate) as a positive credit leg', () => {
+    const csv = [
+      'Order ID,Transaction ID,Filled Time,Symbol,Side,Filled Price,Quantity,Exec Value,Fee,Fee Currency',
+      'order-rebate,trade-rebate,2024-11-02 10:00:00,ETHUSDT,Sell,2000,0.5,1000,-1.5,USDT',
+    ].join('\n');
+
+    const result = parseBybitCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    const feeLeg = result.events[0]?.legs.find(l => l.feeFlag);
+    // -1.5 USDT fee (rebate) → negated → positive 1.5 USDT credit
+    expect(feeLeg).toMatchObject({ asset: 'USDT', amount: '1.5', feeFlag: true });
+  });
 });
