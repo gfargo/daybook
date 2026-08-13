@@ -240,6 +240,181 @@ describe('computeTax', () => {
       // Gain: $1,450 - $1,000 = $450
       expect(sellDisposal!.gainLoss).toBe('450');
     });
+
+    it('defaults to subtract-from-proceeds when feeAllocation is unset (regression guard)', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-fee',
+          timestamp: new Date('2023-01-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-fee',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+            { asset: 'ETH', amount: '-0.001', amountUsdAtTime: '50', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      const sellDisposal = result.disposals.find(
+        (d) => d.sourceEntryId === 'sell-fee' && d.amount === '1',
+      );
+      expect(sellDisposal!.proceeds).toBe('1450');
+      expect(sellDisposal!.gainLoss).toBe('450');
+    });
+  });
+
+  // ─── Test 3b: feeAllocation config option ────────────────────────────
+  describe('fee allocation policy', () => {
+    /**
+     * ETH bought in 2023, swapped for BTC (with a fee) in 2024, then the
+     * BTC is sold in 2025. Lets us see the fee's effect cross the boundary
+     * between the acquisition year (the swap) and the disposal year (the
+     * BTC sale).
+     */
+    function crossYearSwapEntries(): LedgerEntry[] {
+      return [
+        makeEntry({
+          id: 'buy-eth',
+          timestamp: new Date('2023-01-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'swap-eth-btc',
+          timestamp: new Date('2024-03-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1200' },
+            { asset: 'BTC', amount: '1', amountUsdAtTime: '1200' },
+            { asset: 'BTC', amount: '-0.001', amountUsdAtTime: '20', feeFlag: true },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-btc',
+          timestamp: new Date('2025-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'BTC', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+      ];
+    }
+
+    it('subtract-from-proceeds: fee reduces the swap-year proceeds, not the acquired lot basis', () => {
+      const result = computeTax(crossYearSwapEntries(), {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+        feeAllocation: 'subtract-from-proceeds',
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.sourceEntryId === 'swap-eth-btc');
+      expect(ethDisposal).toBeDefined();
+      // Proceeds: $1,200 - $20 fee = $1,180
+      expect(ethDisposal!.proceeds).toBe('1180');
+      expect(ethDisposal!.gainLoss).toBe('180');
+    });
+
+    it('add-to-basis: fee is folded into the acquired BTC lot, not the swap-year proceeds', () => {
+      const result = computeTax(crossYearSwapEntries(), {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+        feeAllocation: 'add-to-basis',
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.sourceEntryId === 'swap-eth-btc');
+      expect(ethDisposal).toBeDefined();
+      // Proceeds unaffected by the fee: full $1,200
+      expect(ethDisposal!.proceeds).toBe('1200');
+      expect(ethDisposal!.gainLoss).toBe('200');
+    });
+
+    it('add-to-basis: the fee folded into the BTC lot surfaces as higher cost basis on the later sale', () => {
+      const result = computeTax(crossYearSwapEntries(), {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2025,
+        feeAllocation: 'add-to-basis',
+      });
+
+      const btcDisposal = result.disposals.find((d) => d.sourceEntryId === 'sell-btc');
+      expect(btcDisposal).toBeDefined();
+      // Cost basis: $1,200 acquired + $20 fee folded in = $1,220
+      expect(btcDisposal!.costBasis).toBe('1220');
+      expect(btcDisposal!.gainLoss).toBe('280');
+    });
+
+    it('subtract-from-proceeds: the later BTC sale sees the unmodified $1,200 basis', () => {
+      const result = computeTax(crossYearSwapEntries(), {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2025,
+        feeAllocation: 'subtract-from-proceeds',
+      });
+
+      const btcDisposal = result.disposals.find((d) => d.sourceEntryId === 'sell-btc');
+      expect(btcDisposal).toBeDefined();
+      expect(btcDisposal!.costBasis).toBe('1200');
+      expect(btcDisposal!.gainLoss).toBe('300');
+    });
+
+    it('add-to-basis falls back to subtracting from proceeds when there is no priced in-leg to allocate to', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-eth-2',
+          timestamp: new Date('2023-01-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-eth-to-fiat',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+            { asset: 'ETH', amount: '-0.001', amountUsdAtTime: '50', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+        feeAllocation: 'add-to-basis',
+      });
+
+      const sellDisposal = result.disposals.find((d) => d.sourceEntryId === 'sell-eth-to-fiat');
+      expect(sellDisposal).toBeDefined();
+      // No in-leg to fold the fee into (USD legs aren't lots) — fee still
+      // reduces proceeds so it isn't silently dropped.
+      expect(sellDisposal!.proceeds).toBe('1450');
+      expect(sellDisposal!.gainLoss).toBe('450');
+    });
   });
 
   // ─── Test 4: Holding period classification ───────────────────────────

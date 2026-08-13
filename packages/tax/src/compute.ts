@@ -54,6 +54,18 @@ export interface ComputeTaxConfig {
    * move lots between accounts without creating a disposal event.
    */
   lotPool?: 'universal' | 'per-account';
+  /**
+   * How trade fees affect gain/loss.
+   *
+   * `'subtract-from-proceeds'` (default) — fee USD reduces disposal proceeds,
+   * matching prior behaviour byte-for-byte.
+   *
+   * `'add-to-basis'` — fee USD is added to the cost basis of the acquired
+   * (buy) lots instead of reducing proceeds. If a trade has no priced
+   * acquired leg to allocate the fee to (e.g. a pure sell to fiat), the fee
+   * falls back to reducing proceeds so it is never silently dropped.
+   */
+  feeAllocation?: 'add-to-basis' | 'subtract-from-proceeds';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -223,6 +235,7 @@ export function computeTax(
 
   const { method, holdingPeriodDays, year } = config;
   const perAccount = config.lotPool === 'per-account';
+  const feeAllocation = config.feeAllocation ?? 'subtract-from-proceeds';
   const yearStart = new Date(`${year}-01-01T00:00:00Z`);
   const yearEnd = new Date(`${year + 1}-01-01T00:00:00Z`);
 
@@ -261,6 +274,19 @@ export function computeTax(
           }
         }
 
+        // For 'add-to-basis', allocate fees proportionally across priced
+        // in-legs by USD value. If there are no priced in-legs, fall back
+        // to subtracting the fee from proceeds below so it isn't dropped.
+        let totalInLegUsd = new Decimal(0);
+        if (feeAllocation === 'add-to-basis') {
+          for (const leg of inLegs) {
+            const usd = resolveUsd(leg);
+            if (usd) totalInLegUsd = totalInLegUsd.plus(new Decimal(usd).abs());
+          }
+        }
+        const allocateFeeToBasis =
+          feeAllocation === 'add-to-basis' && totalInLegUsd.gt(0);
+
         // Acquire lots for positive (buy) legs
         for (const leg of inLegs) {
           const usd = resolveUsd(leg);
@@ -270,11 +296,21 @@ export function computeTax(
           }
           const asset = canonicalAsset(leg.asset);
           const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
+
+          let unitCostUsd: string;
+          if (allocateFeeToBasis) {
+            const legUsdAbs = new Decimal(usd).abs();
+            const feeShare = totalFeeUsd.times(legUsdAbs).div(totalInLegUsd);
+            unitCostUsd = unitCost(leg, legUsdAbs.plus(feeShare).toString());
+          } else {
+            unitCostUsd = unitCost(leg, usd);
+          }
+
           lotBook.acquire({
             id: nextLotId(entry.id, asset),
             asset,
             amount: new Decimal(leg.amount).abs().toString(),
-            unitCostUsd: unitCost(leg, usd),
+            unitCostUsd,
             acquiredAt: entry.timestamp,
             sourceEntryId: entry.id,
           }, account);
@@ -315,8 +351,14 @@ export function computeTax(
           }
 
           const rawProceeds = legUsd ? new Decimal(legUsd).abs() : new Decimal(0);
-          // Subtract fees from proceeds (v1 policy: fees reduce proceeds)
-          const netProceeds = rawProceeds.minus(totalFeeUsd);
+          // 'subtract-from-proceeds' (default): fee reduces proceeds.
+          // 'add-to-basis': fee is already folded into acquired-lot basis
+          // above, so proceeds are untouched — unless there was no priced
+          // in-leg to allocate to, in which case fall back to subtracting
+          // here so the fee is never silently dropped.
+          const netProceeds = allocateFeeToBasis
+            ? rawProceeds
+            : rawProceeds.minus(totalFeeUsd);
           const costBasis = new Decimal(disposal.costBasis);
           const gainLoss = netProceeds.minus(costBasis);
 
