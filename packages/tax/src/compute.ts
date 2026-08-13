@@ -22,13 +22,7 @@ import type { TaxResult, DisposalResult, IncomeSummary } from './types.js';
 import { applyWashSaleFlags } from './wash-sale.js';
 import type { AcquisitionRecord } from './wash-sale.js';
 import { canonicalAsset } from './pricing/asset-aliases.js';
-
-// ─────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────
-
-/** Milliseconds in one day. */
-const MS_PER_DAY = 86_400_000;
+import { classifyTerm } from './holding-period.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Config
@@ -40,7 +34,12 @@ const MS_PER_DAY = 86_400_000;
 export interface ComputeTaxConfig {
   /** Cost-basis strategy to use (FIFO, HIFO). */
   method: CostBasisStrategy;
-  /** Number of days for long-term holding period threshold. Default 365. */
+  /**
+   * @deprecated No longer consulted. Term is now determined by calendar
+   * anniversary (see `classifyTerm` in `holding-period.ts`), matching the
+   * IRS "held more than one year" rule exactly across leap years. Retained
+   * on the config type for source compatibility with existing callers.
+   */
   holdingPeriodDays: number;
   /** Tax year to compute. */
   year: number;
@@ -221,7 +220,7 @@ export function computeTax(
   // Reset lot ID counter for deterministic output
   lotIdCounter = 0;
 
-  const { method, holdingPeriodDays, year } = config;
+  const { method, year } = config;
   const perAccount = config.lotPool === 'per-account';
   const yearStart = new Date(`${year}-01-01T00:00:00Z`);
   const yearEnd = new Date(`${year + 1}-01-01T00:00:00Z`);
@@ -320,14 +319,6 @@ export function computeTax(
           const costBasis = new Decimal(disposal.costBasis);
           const gainLoss = netProceeds.minus(costBasis);
 
-          // Determine holding period
-          const holdingMs =
-            entry.timestamp.getTime() - disposal.acquiredAt.getTime();
-          const term: 'short-term' | 'long-term' =
-            holdingMs > holdingPeriodDays * MS_PER_DAY
-              ? 'long-term'
-              : 'short-term';
-
           // Only record disposals that fall within the tax year
           if (
             entry.timestamp >= yearStart &&
@@ -338,7 +329,6 @@ export function computeTax(
               proceeds: netProceeds.toString(),
               costBasis: costBasis.toString(),
               gainLoss: gainLoss.toString(),
-              term,
               sourceEntryId: entry.id,
             });
           }
@@ -428,14 +418,6 @@ export function computeTax(
           const costBasis = new Decimal(disposal.costBasis);
           const gainLoss = proceeds.minus(costBasis);
 
-          // Determine holding period
-          const holdingMs =
-            entry.timestamp.getTime() - disposal.acquiredAt.getTime();
-          const term: 'short-term' | 'long-term' =
-            holdingMs > holdingPeriodDays * MS_PER_DAY
-              ? 'long-term'
-              : 'short-term';
-
           // Only record disposals that fall within the tax year
           if (
             entry.timestamp >= yearStart &&
@@ -446,7 +428,6 @@ export function computeTax(
               proceeds: proceeds.toString(),
               costBasis: costBasis.toString(),
               gainLoss: gainLoss.toString(),
-              term,
               sourceEntryId: entry.id,
             });
           }
@@ -580,13 +561,8 @@ export function computeTax(
 
         const gainLoss = proceeds.minus(costBasis);
 
-        // Determine holding period
-        const holdingMs =
-          entry.timestamp.getTime() - acquiredAt.getTime();
-        const term: 'short-term' | 'long-term' =
-          holdingMs > holdingPeriodDays * MS_PER_DAY
-            ? 'long-term'
-            : 'short-term';
+        // Determine holding period by calendar anniversary, not day count
+        const term = classifyTerm(acquiredAt, entry.timestamp);
 
         // Only record disposals that fall within the tax year
         if (

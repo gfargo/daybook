@@ -17,16 +17,7 @@
 import Decimal from 'decimal.js';
 import type { Lot, DisposalResult } from './types.js';
 import type { CostBasisStrategy } from './cost-basis.js';
-
-// ─────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────
-
-/** Number of milliseconds in one day. */
-const MS_PER_DAY = 86_400_000;
-
-/** Default holding period threshold in days (US: >365 = long-term). */
-const HOLDING_PERIOD_DAYS = 365;
+import { classifyTerm } from './holding-period.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // LotBook
@@ -146,11 +137,9 @@ export class LotBook {
       }
     }
 
-    // Determine holding period
+    // Determine holding period by calendar anniversary, not day count
     const acquiredAt = earliestAcquiredAt ?? disposedAt;
-    const holdingDays = (disposedAt.getTime() - acquiredAt.getTime()) / MS_PER_DAY;
-    const term: 'short-term' | 'long-term' =
-      holdingDays > HOLDING_PERIOD_DAYS ? 'long-term' : 'short-term';
+    const term = classifyTerm(acquiredAt, disposedAt);
 
     // Proceeds default to '0' — the caller (computeTax) sets actual proceeds
     return {
