@@ -80,6 +80,72 @@ describe('parseMexcCsv', () => {
     });
   });
 
+  it('scales the quote leg by fill ratio for a partially-filled buy order', () => {
+    const csv = [
+      'UID,Pairs,Time,Type,Direction,Average Filled Price,Order Price,Filled Quantity,Order Quantity,Order Amount,Status',
+      '123,BTCUSDT,2024-03-01 10:00:00,LIMIT,Buy,30000,30000,0.01,0.02,600,Partially Filled',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      type: 'trade',
+      legs: [
+        { asset: 'BTC', amount: '0.01' },
+        { asset: 'USDT', amount: '-300' },
+      ],
+    });
+  });
+
+  it('scales the quote leg for a partially-filled sell order', () => {
+    const csv = [
+      'UID,Pairs,Time,Type,Direction,Average Filled Price,Order Price,Filled Quantity,Order Quantity,Order Amount,Status',
+      '123,BTCUSDT,2024-03-01 10:00:00,LIMIT,Sell,30000,30000,0.01,0.02,600,Partially Filled',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      type: 'trade',
+      legs: [
+        { asset: 'BTC', amount: '-0.01' },
+        { asset: 'USDT', amount: '300' },
+      ],
+    });
+  });
+
+  it('falls back to scaling Order Amount by fill ratio when Average Filled Price is missing', () => {
+    const csv = [
+      'UID,Pairs,Time,Type,Direction,Order Price,Filled Quantity,Order Quantity,Order Amount,Status',
+      '123,BTCUSDT,2024-03-01 10:00:00,LIMIT,Buy,30000,0.01,0.02,600,Partially Filled',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      type: 'trade',
+      legs: [
+        { asset: 'BTC', amount: '0.01' },
+        { asset: 'USDT', amount: '-300' },
+      ],
+    });
+  });
+
+  it('skips a Cancelled row even when it has a nonzero Filled Quantity', () => {
+    const csv = [
+      'UID,Pairs,Time,Type,Direction,Average Filled Price,Order Price,Filled Quantity,Order Quantity,Order Amount,Status',
+      '123,BTCUSDT,2024-03-01 10:00:00,LIMIT,Buy,30000,30000,0.01,0.02,600,Cancelled',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(0);
+    expect(result.unparsedRowCount).toBe(1);
+  });
+
   it('parses deposits, filtering on success status', () => {
     const csv = [
       'UID,Status,Time,Crypto,Network,Deposit Amount,TxID,Progress',
