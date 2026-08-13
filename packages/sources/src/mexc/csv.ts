@@ -12,8 +12,11 @@
  *     denominated in the quote asset.
  *
  *   - **orders** — Spot Order History. Headers include `Type, Direction,
- *     Filled Quantity, Order Amount, Status`. Used when a user only has
- *     order history (no fees recorded).
+ *     Filled Quantity, Order Quantity, Order Amount, Average Filled Price,
+ *     Status`. Used when a user only has order history (no fees recorded).
+ *     `Order Amount` is the value of the whole order, so for partial fills
+ *     the quote leg is derived from `Filled Quantity × Average Filled Price`
+ *     (or, absent that, `Order Amount` scaled by the fill ratio).
  *
  *   - **deposits** — Headers: `UID, Status, Time, Crypto, Network,
  *     Deposit Amount, TxID, Progress`. Only `Status == "Credited
@@ -104,6 +107,15 @@ const WITHDRAWAL_SUCCESS_STATUSES = new Set([
   'completed',
   'success',
   'successful',
+]);
+
+const ORDER_FILLED_STATUSES = new Set([
+  'filled',
+  'partially filled',
+  'partial filled',
+  'success',
+  'successful',
+  'completed',
 ]);
 
 // ─── Entry point ─────────────────────────────────────────────────────────
@@ -237,7 +249,7 @@ function buildOrderEvent(
   warnings: string[],
 ): RawEvent | undefined {
   const statusRaw = (pick(row, ['status']) ?? '').toLowerCase();
-  if (statusRaw && !statusRaw.includes('filled') && !statusRaw.includes('success')) {
+  if (statusRaw && !ORDER_FILLED_STATUSES.has(statusRaw)) {
     warnings.push(`Row ${row.rowNumber} skipped: MEXC order status "${statusRaw}" is not Filled/Successful`);
     return undefined;
   }
@@ -253,6 +265,10 @@ function buildOrderEvent(
   const direction = (pick(row, ['direction', 'side']) ?? '').toLowerCase();
   const filledQty = parseAmount(pick(row, ['filled quantity', 'filledquantity']));
   const orderAmount = parseAmount(pick(row, ['order amount', 'orderamount', 'total']));
+  const orderQty = parseAmount(pick(row, ['order quantity', 'orderquantity']));
+  const avgPrice = parseAmount(
+    pick(row, ['average filled price', 'averagefilledprice', 'filled price', 'filledprice']),
+  );
 
   if (!pair || !filledQty || !orderAmount || filledQty.isZero()) {
     return undefined;
@@ -264,10 +280,22 @@ function buildOrderEvent(
     return undefined;
   }
 
+  // Order Amount is the value of the WHOLE order, but Filled Quantity may
+  // only be a partial fill — derive the executed quote amount instead of
+  // assuming the full order amount was paid/received.
+  let quoteAmount: Decimal;
+  if (avgPrice && avgPrice.gt(0)) {
+    quoteAmount = filledQty.abs().times(avgPrice.abs());
+  } else if (orderQty && orderQty.gt(0)) {
+    quoteAmount = orderAmount.abs().times(filledQty.abs()).div(orderQty.abs());
+  } else {
+    quoteAmount = orderAmount.abs();
+  }
+
   const isBuy = direction === 'buy';
   const legs: AssetLeg[] = [];
   legs.push(assetLeg(base, isBuy ? filledQty.abs() : filledQty.abs().negated()));
-  legs.push(assetLeg(quote, isBuy ? orderAmount.abs().negated() : orderAmount.abs()));
+  legs.push(assetLeg(quote, isBuy ? quoteAmount.negated() : quoteAmount));
 
   const idSeed = `${pair}|${timestamp.toISOString()}|${direction}|${baseAmount(filledQty)}|${baseAmount(orderAmount)}`;
   return {
