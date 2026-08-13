@@ -146,6 +146,49 @@ describe('compareMethods integration', () => {
       expect(s.incomeTotal).toBe('750');
     }
   });
+
+  it('should honor the feeAllocation parameter', () => {
+    const entries: LedgerEntry[] = [
+      // Buy: 1 ETH at $1000 (2024-01-15)
+      {
+        id: 'entry-buy-1',
+        timestamp: new Date('2024-01-15T12:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000', amountUsdReportedBySource: '1000' },
+          { asset: 'ETH', amount: '1', amountUsdAtTime: '1000', amountUsdReportedBySource: '1000' },
+        ],
+        rawEventIds: ['raw-1'],
+      },
+      // Sell: 1 ETH at $2500 with a $50 fee (2024-06-15)
+      {
+        id: 'entry-sell-1',
+        timestamp: new Date('2024-06-15T12:00:00Z'),
+        type: 'trade',
+        legs: [
+          { asset: 'ETH', amount: '-1', amountUsdAtTime: '2500', amountUsdReportedBySource: '2500' },
+          { asset: 'USD', amount: '2500', amountUsdAtTime: '2500', amountUsdReportedBySource: '2500' },
+          { asset: 'USD', amount: '-50', amountUsdAtTime: '50', amountUsdReportedBySource: '50', feeFlag: true },
+        ],
+        rawEventIds: ['raw-2'],
+      },
+    ];
+
+    // subtract-from-proceeds (default): gain = (2500 - 50) - 1000 = 1450
+    const subtractResult = compareMethods(entries, 2024, undefined, undefined, 'subtract-from-proceeds');
+    const fifoSubtract = subtractResult.results.find(r => r.method === 'FIFO')!.result;
+    expect(fifoSubtract.disposals[0]!.gainLoss).toBe('1450');
+
+    // add-to-basis: gain = 2500 - (1000 + 50) = 1450 too, but proceeds/basis split differently
+    const addResult = compareMethods(entries, 2024, undefined, undefined, 'add-to-basis');
+    const fifoAdd = addResult.results.find(r => r.method === 'FIFO')!.result;
+    expect(fifoAdd.disposals[0]!.proceeds).toBe('2500');
+    expect(fifoAdd.disposals[0]!.costBasis).toBe('1050');
+    expect(fifoAdd.disposals[0]!.gainLoss).toBe('1450');
+
+    expect(fifoSubtract.disposals[0]!.proceeds).toBe('2450');
+    expect(fifoSubtract.disposals[0]!.costBasis).toBe('1000');
+  });
 });
 
 describe('compareCommand year validation', () => {

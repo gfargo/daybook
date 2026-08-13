@@ -138,7 +138,13 @@ export async function compareCommand(
     }
 
     // 7. Run compareMethods()
-    const compareResult = compareMethods(allEntries, yearNum, 365, config.tax.lotPool);
+    const compareResult = compareMethods(
+      allEntries,
+      yearNum,
+      365,
+      config.tax.lotPool,
+      config.tax.feeAllocation,
+    );
 
     // 8. Summarize and render table using Ink
     const summaries = summarizeResults(compareResult);
