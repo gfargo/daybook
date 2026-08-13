@@ -54,6 +54,15 @@ export interface ComputeTaxConfig {
    * move lots between accounts without creating a disposal event.
    */
   lotPool?: 'universal' | 'per-account';
+  /**
+   * How trade fees are applied to a disposal.
+   *
+   * `'subtract-from-proceeds'` (default) — fees reduce proceeds.
+   *
+   * `'add-to-basis'` — proceeds stay gross; fees are added to cost basis
+   * instead.
+   */
+  feeAllocation?: 'add-to-basis' | 'subtract-from-proceeds';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -223,6 +232,7 @@ export function computeTax(
 
   const { method, holdingPeriodDays, year } = config;
   const perAccount = config.lotPool === 'per-account';
+  const feeAllocation = config.feeAllocation ?? 'subtract-from-proceeds';
   const yearStart = new Date(`${year}-01-01T00:00:00Z`);
   const yearEnd = new Date(`${year + 1}-01-01T00:00:00Z`);
 
@@ -283,8 +293,23 @@ export function computeTax(
           acquisitions.push({ asset, acquiredAt: entry.timestamp });
         }
 
+        // Pro-rata weights for allocating the entry's total fee across
+        // out-legs, by USD value. Out-legs with no resolvable USD value
+        // are excluded from the weighted sum; if none of the out-legs are
+        // priced, the fee is split equally across them instead.
+        const outLegUsds = outLegs.map((l) => {
+          const usd = resolveUsd(l);
+          return usd ? new Decimal(usd).abs() : null;
+        });
+        const totalOutUsd = outLegUsds.reduce<Decimal>(
+          (sum, usd) => (usd ? sum.plus(usd) : sum),
+          new Decimal(0),
+        );
+        let remainingFeeUsd = totalFeeUsd;
+
         // Dispose lots for negative (sell) legs — only in the tax year
-        for (const leg of outLegs) {
+        for (let i = 0; i < outLegs.length; i++) {
+          const leg = outLegs[i]!;
           const absAmount = new Decimal(leg.amount).abs();
           const asset = canonicalAsset(leg.asset);
           const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
@@ -314,10 +339,35 @@ export function computeTax(
             unpricedEvents.push(entry.id);
           }
 
+          // Allocate this leg's share of the entry's total fee. The last
+          // out-leg absorbs whatever remains so the shares always sum to
+          // exactly totalFeeUsd, regardless of decimal rounding.
+          const isLastLeg = i === outLegs.length - 1;
+          let allocatedFee: Decimal;
+          if (isLastLeg) {
+            allocatedFee = remainingFeeUsd;
+          } else {
+            const legUsdWeight = outLegUsds[i];
+            const weight = totalOutUsd.isZero()
+              ? new Decimal(1).div(outLegs.length)
+              : legUsdWeight
+                ? legUsdWeight.div(totalOutUsd)
+                : new Decimal(0);
+            allocatedFee = totalFeeUsd.times(weight);
+          }
+          remainingFeeUsd = remainingFeeUsd.minus(allocatedFee);
+
           const rawProceeds = legUsd ? new Decimal(legUsd).abs() : new Decimal(0);
-          // Subtract fees from proceeds (v1 policy: fees reduce proceeds)
-          const netProceeds = rawProceeds.minus(totalFeeUsd);
-          const costBasis = new Decimal(disposal.costBasis);
+          let costBasis = new Decimal(disposal.costBasis);
+          // Fees either reduce proceeds (default) or add to cost basis,
+          // per config.feeAllocation.
+          const netProceeds =
+            feeAllocation === 'add-to-basis'
+              ? rawProceeds
+              : rawProceeds.minus(allocatedFee);
+          if (feeAllocation === 'add-to-basis') {
+            costBasis = costBasis.plus(allocatedFee);
+          }
           const gainLoss = netProceeds.minus(costBasis);
 
           // Determine holding period

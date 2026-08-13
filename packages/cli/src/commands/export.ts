@@ -487,6 +487,7 @@ export async function exportCommand(
       holdingPeriodDays: 365,
       year: yearNum,
       lotPool: config.tax.lotPool,
+      feeAllocation: config.tax.feeAllocation,
     });
 
     // 8. Resolve format and checkbox options

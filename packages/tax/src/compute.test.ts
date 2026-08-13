@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import Decimal from 'decimal.js';
 import type { LedgerEntry, LedgerEntryType, AssetLeg } from '@daybook/ledger';
 import { computeTax } from './compute.js';
 import { FIFO, HIFO } from './cost-basis.js';
@@ -239,6 +240,165 @@ describe('computeTax', () => {
       expect(sellDisposal!.costBasis).toBe('1000');
       // Gain: $1,450 - $1,000 = $450
       expect(sellDisposal!.gainLoss).toBe('450');
+    });
+  });
+
+  // ─── Test 3b: Fee allocation across multiple out-legs ────────────────
+  describe('fee allocation across multiple out-legs', () => {
+    it('splits a single fee pro-rata across a 2-out-leg trade (equal USD value)', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-eth',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'buy-btc',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'BTC', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-multi',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'BTC', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '400', amountUsdAtTime: '400' },
+            { asset: 'USD', amount: '-30', amountUsdAtTime: '30', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.asset === 'ETH');
+      const btcDisposal = result.disposals.find((d) => d.asset === 'BTC');
+      expect(ethDisposal).toBeDefined();
+      expect(btcDisposal).toBeDefined();
+
+      // Gross proceeds $400, one $30 fee split once (not once per leg).
+      expect(ethDisposal!.proceeds).toBe('185');
+      expect(btcDisposal!.proceeds).toBe('185');
+      const totalProceeds = new Decimal(ethDisposal!.proceeds).plus(
+        btcDisposal!.proceeds,
+      );
+      expect(totalProceeds.toString()).toBe('370');
+    });
+
+    it('weights the fee split by each leg USD value, not equally', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-eth-w',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '300' },
+            { asset: 'USD', amount: '-300', amountUsdAtTime: '300' },
+          ],
+        }),
+        makeEntry({
+          id: 'buy-btc-w',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'BTC', amount: '1', amountUsdAtTime: '100' },
+            { asset: 'USD', amount: '-100', amountUsdAtTime: '100' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-multi-w',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '300' },
+            { asset: 'BTC', amount: '-1', amountUsdAtTime: '100' },
+            { asset: 'USD', amount: '400', amountUsdAtTime: '400' },
+            { asset: 'USD', amount: '-40', amountUsdAtTime: '40', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.asset === 'ETH');
+      const btcDisposal = result.disposals.find((d) => d.asset === 'BTC');
+
+      // ETH is 75% of out-leg value → 75% of the $40 fee ($30); BTC gets $10.
+      expect(ethDisposal!.proceeds).toBe('270');
+      expect(btcDisposal!.proceeds).toBe('90');
+      const totalProceeds = new Decimal(ethDisposal!.proceeds).plus(
+        btcDisposal!.proceeds,
+      );
+      expect(totalProceeds.toString()).toBe('360');
+    });
+
+    it('adds the allocated fee to cost basis instead of proceeds when feeAllocation is add-to-basis', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-eth-b',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'buy-btc-b',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'BTC', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-multi-b',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'BTC', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '400', amountUsdAtTime: '400' },
+            { asset: 'USD', amount: '-30', amountUsdAtTime: '30', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+        feeAllocation: 'add-to-basis',
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.asset === 'ETH');
+      const btcDisposal = result.disposals.find((d) => d.asset === 'BTC');
+
+      // Proceeds stay gross; the $15 allocated fee is added to cost basis.
+      expect(ethDisposal!.proceeds).toBe('200');
+      expect(btcDisposal!.proceeds).toBe('200');
+      expect(ethDisposal!.costBasis).toBe('215');
+      expect(btcDisposal!.costBasis).toBe('215');
+      expect(ethDisposal!.gainLoss).toBe('-15');
+      expect(btcDisposal!.gainLoss).toBe('-15');
     });
   });
 
