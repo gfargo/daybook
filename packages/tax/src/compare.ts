@@ -104,6 +104,8 @@ function totalTaxable(result: TaxResult): Decimal {
  * @param entries - LedgerEntries with USD values already hydrated.
  * @param year - The tax year to compute.
  * @param holdingPeriodDays - Days for long-term threshold. Default 365.
+ * @param lotPool - Lot pooling mode. Default 'universal'.
+ * @param feeAllocation - How trade fees affect gain/loss. Default 'subtract-from-proceeds'.
  * @returns A CompareResult with per-method results and the winning method.
  */
 export function compareMethods(
@@ -111,6 +113,7 @@ export function compareMethods(
   year: number,
   holdingPeriodDays: number = DEFAULT_HOLDING_PERIOD_DAYS,
   lotPool: 'universal' | 'per-account' = 'universal',
+  feeAllocation: 'add-to-basis' | 'subtract-from-proceeds' = 'subtract-from-proceeds',
 ): CompareResult {
   const results: Array<{ method: string; result: TaxResult }> = [];
 
@@ -120,6 +123,7 @@ export function compareMethods(
       holdingPeriodDays,
       year,
       lotPool,
+      feeAllocation,
     });
     results.push({ method: strategy.name, result });
   }

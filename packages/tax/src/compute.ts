@@ -320,6 +320,13 @@ export function computeTax(
         }
 
         // Dispose lots for negative (sell) legs — only in the tax year
+        //
+        // Pre-existing quirk (not introduced by feeAllocation): when a trade
+        // has multiple outLegs, `totalFeeUsd` is the *entry's* full fee, not
+        // per-leg, so under 'subtract-from-proceeds' it is subtracted from
+        // every outLeg's proceeds below — not split across them. This
+        // matches prior byte-for-byte behaviour and is intentionally
+        // preserved here rather than fixed.
         for (const leg of outLegs) {
           const absAmount = new Decimal(leg.amount).abs();
           const asset = canonicalAsset(leg.asset);
