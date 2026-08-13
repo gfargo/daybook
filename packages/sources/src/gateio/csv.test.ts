@@ -172,6 +172,53 @@ describe('parseGateioCsv', () => {
     expect(result.totalRows).toBe(0);
   });
 
+  it('derives fallback IDs (no action_data) from row content, not position', () => {
+    const csv = [
+      'no,time,action_desc,action_data,type,change_amount,amount,total',
+      '1,2024-10-01 09:00:00,Deposits,,BTC,0.5,0.5,15000',
+    ].join('\n');
+
+    const result = parseGateioCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.id).toMatch(/^gateio:crypto_in:[a-f0-9]{16}$/);
+  });
+
+  it('keeps the same ID for a shared row whether parsed alone or within a superset export', () => {
+    const rowBtc = '2,2024-10-02 09:00:00,Deposits,,BTC,0.5,0.5,15000';
+    const rowEth = '3,2024-10-03 09:00:00,Deposits,,ETH,1.2,1.2,3000';
+    const header = 'no,time,action_desc,action_data,type,change_amount,amount,total';
+
+    const fileA = [header, rowBtc, rowEth].join('\n');
+    const fileB = [header, '1,2024-10-01 09:00:00,Deposits,,SOL,10,10,420', rowBtc, rowEth].join(
+      '\n',
+    );
+
+    const resultA = parseGateioCsv(fileA, { accountId });
+    const resultB = parseGateioCsv(fileB, { accountId });
+
+    const btcIdA = resultA.events.find((e) => e.legs[0]?.asset === 'BTC')?.id;
+    const ethIdA = resultA.events.find((e) => e.legs[0]?.asset === 'ETH')?.id;
+    const btcIdB = resultB.events.find((e) => e.legs[0]?.asset === 'BTC')?.id;
+    const ethIdB = resultB.events.find((e) => e.legs[0]?.asset === 'ETH')?.id;
+
+    expect(btcIdA).toBeDefined();
+    expect(ethIdA).toBeDefined();
+    expect(btcIdA).toBe(btcIdB);
+    expect(ethIdA).toBe(ethIdB);
+  });
+
+  it('produces stable fallback IDs across reparses (idempotent)', () => {
+    const csv = [
+      'no,time,action_desc,action_data,type,change_amount,amount,total',
+      '1,2024-10-04 09:00:00,Deposits,,BTC,0.5,0.5,15000',
+    ].join('\n');
+
+    const a = parseGateioCsv(csv, { accountId });
+    const b = parseGateioCsv(csv, { accountId });
+    expect(a.events[0]?.id).toBe(b.events[0]?.id);
+  });
+
   it('sorts events ascending by timestamp', () => {
     const csv = [
       'no,time,action_desc,action_data,type,change_amount,amount,total',
