@@ -436,6 +436,105 @@ describe('computeTax', () => {
       // Jan 1 → Jun 1 = 152 days → short-term
       expect(result.disposals[0]!.term).toBe('short-term');
     });
+
+    it('classifies a leap-year 366-day holding (exact one year) as short-term', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-leap',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-leap',
+          timestamp: new Date('2025-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2025,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      // 2024-01-01 → 2025-01-01 = 366 elapsed days (2024 is a leap year),
+      // but exactly one calendar year → short-term.
+      expect(result.disposals[0]!.term).toBe('short-term');
+    });
+
+    it('classifies the day after the calendar anniversary as long-term', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-anniv',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-anniv',
+          timestamp: new Date('2025-01-02T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2025,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      expect(result.disposals[0]!.term).toBe('long-term');
+    });
+
+    it('classifies an exact non-leap 365-day anniversary as short-term', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-nonleap',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-nonleap',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      // 2023-01-01 → 2024-01-01 = 365 elapsed days, exact one calendar year → short-term.
+      expect(result.disposals[0]!.term).toBe('short-term');
+    });
   });
 
   // ─── Test 5: Income creates lots and appears in summary ──────────────

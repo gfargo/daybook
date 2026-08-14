@@ -36,6 +36,9 @@ export { FIFO, HIFO, LIFO, SpecificId } from './cost-basis.js';
 
 export { LotBook } from './lot-book.js';
 
+// ─── Holding period ──────────────────────────────────────────────────────
+export { classifyTerm } from './holding-period.js';
+
 // ─── Tax computation ─────────────────────────────────────────────────────
 export { computeTax } from './compute.js';
 export type { ComputeTaxConfig } from './compute.js';

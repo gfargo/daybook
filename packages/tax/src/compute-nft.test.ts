@@ -361,6 +361,56 @@ describe('computeTax — NFT integration', () => {
       // Jan 2023 → Jun 2024 = ~517 days → long-term
       expect(result.disposals[0]!.term).toBe('long-term');
     });
+
+    it('classifies a leap-year exact-one-year NFT holding as short-term', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'nft-buy-leap',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+          type: 'nft_acquisition',
+          reason: 'NFT purchase',
+          legs: [
+            {
+              asset: 'BAYC',
+              amount: '1',
+              contractAddress: CONTRACT,
+              tokenId: '300',
+            },
+            {
+              asset: 'ETH',
+              amount: '-1.0',
+              amountUsdAtTime: '2000',
+            },
+          ],
+        }),
+        makeEntry({
+          id: 'nft-sell-leap',
+          timestamp: new Date('2025-01-01T00:00:00Z'),
+          type: 'nft_disposal',
+          reason: 'NFT sale',
+          legs: [
+            {
+              asset: 'BAYC',
+              amount: '-1',
+              contractAddress: CONTRACT,
+              tokenId: '300',
+            },
+            {
+              asset: 'ETH',
+              amount: '1.5',
+              amountUsdAtTime: '3000',
+            },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, { ...config2024, year: 2025 });
+
+      expect(result.disposals).toHaveLength(1);
+      // 2024-01-01 → 2025-01-01 = 366 elapsed days (2024 is a leap year),
+      // but exactly one calendar year → short-term.
+      expect(result.disposals[0]!.term).toBe('short-term');
+    });
   });
 
   // ─── Test 6: Unpriced NFT events ─────────────────────────────────────

@@ -414,6 +414,48 @@ describe('LotBook', () => {
     });
   });
 
+  describe('dispose term classification (calendar anniversary)', () => {
+    it('classifies a leap-year exact-one-year holding as short-term', () => {
+      const book = new LotBook();
+      book.acquire(makeLot({
+        id: 'lot-leap',
+        asset: 'ETH',
+        amount: '1.0',
+        unitCostUsd: '1000',
+        acquiredAt: new Date('2024-01-01T00:00:00Z'),
+      }));
+
+      const result = book.dispose(
+        'ETH',
+        new Decimal('1.0'),
+        FIFO,
+        new Date('2025-01-01T00:00:00Z'),
+      );
+
+      expect(result.term).toBe('short-term');
+    });
+
+    it('classifies the day after the anniversary as long-term', () => {
+      const book = new LotBook();
+      book.acquire(makeLot({
+        id: 'lot-anniv',
+        asset: 'ETH',
+        amount: '1.0',
+        unitCostUsd: '1000',
+        acquiredAt: new Date('2024-01-01T00:00:00Z'),
+      }));
+
+      const result = book.dispose(
+        'ETH',
+        new Decimal('1.0'),
+        FIFO,
+        new Date('2025-01-02T00:00:00Z'),
+      );
+
+      expect(result.term).toBe('long-term');
+    });
+  });
+
   describe('partial lot splitting', () => {
     it('disposes less than a full lot, remainder stays in pool', () => {
       const book = new LotBook();
