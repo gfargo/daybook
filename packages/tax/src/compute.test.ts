@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import Decimal from 'decimal.js';
 import type { LedgerEntry, LedgerEntryType, AssetLeg } from '@daybook/ledger';
 import { computeTax } from './compute.js';
 import { FIFO, HIFO } from './cost-basis.js';
@@ -417,6 +418,168 @@ describe('computeTax', () => {
     });
   });
 
+  // ─── Test 3b: Fee allocation across multiple out-legs ────────────────
+  describe('fee allocation across multiple out-legs', () => {
+    it('splits a single fee pro-rata across a 2-out-leg trade (equal USD value)', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-eth',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'buy-btc',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'BTC', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-multi',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'BTC', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '400', amountUsdAtTime: '400' },
+            { asset: 'USD', amount: '-30', amountUsdAtTime: '30', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.asset === 'ETH');
+      const btcDisposal = result.disposals.find((d) => d.asset === 'BTC');
+      expect(ethDisposal).toBeDefined();
+      expect(btcDisposal).toBeDefined();
+
+      // Gross proceeds $400, one $30 fee split once (not once per leg).
+      expect(ethDisposal!.proceeds).toBe('185');
+      expect(btcDisposal!.proceeds).toBe('185');
+      const totalProceeds = new Decimal(ethDisposal!.proceeds).plus(
+        btcDisposal!.proceeds,
+      );
+      expect(totalProceeds.toString()).toBe('370');
+    });
+
+    it('weights the fee split by each leg USD value, not equally', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-eth-w',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '300' },
+            { asset: 'USD', amount: '-300', amountUsdAtTime: '300' },
+          ],
+        }),
+        makeEntry({
+          id: 'buy-btc-w',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'BTC', amount: '1', amountUsdAtTime: '100' },
+            { asset: 'USD', amount: '-100', amountUsdAtTime: '100' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-multi-w',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '300' },
+            { asset: 'BTC', amount: '-1', amountUsdAtTime: '100' },
+            { asset: 'USD', amount: '400', amountUsdAtTime: '400' },
+            { asset: 'USD', amount: '-40', amountUsdAtTime: '40', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.asset === 'ETH');
+      const btcDisposal = result.disposals.find((d) => d.asset === 'BTC');
+
+      // ETH is 75% of out-leg value → 75% of the $40 fee ($30); BTC gets $10.
+      expect(ethDisposal!.proceeds).toBe('270');
+      expect(btcDisposal!.proceeds).toBe('90');
+      const totalProceeds = new Decimal(ethDisposal!.proceeds).plus(
+        btcDisposal!.proceeds,
+      );
+      expect(totalProceeds.toString()).toBe('360');
+    });
+
+    it('add-to-basis falls back to the pro-rata proceeds split when a multi-out-leg trade has no priced in-leg', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-eth-b',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'buy-btc-b',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'BTC', amount: '1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '-200', amountUsdAtTime: '200' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-multi-b',
+          timestamp: new Date('2024-06-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'BTC', amount: '-1', amountUsdAtTime: '200' },
+            { asset: 'USD', amount: '400', amountUsdAtTime: '400' },
+            { asset: 'USD', amount: '-30', amountUsdAtTime: '30', feeFlag: true },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+        feeAllocation: 'add-to-basis',
+      });
+
+      const ethDisposal = result.disposals.find((d) => d.asset === 'ETH');
+      const btcDisposal = result.disposals.find((d) => d.asset === 'BTC');
+
+      // sell-multi-b has no priced in-leg (it disposes ETH and BTC for USD,
+      // acquiring nothing), so there's no acquired lot to fold the fee into.
+      // add-to-basis falls back to the same pro-rata subtract-from-proceeds
+      // split as the default policy — costBasis is left untouched.
+      expect(ethDisposal!.proceeds).toBe('185');
+      expect(btcDisposal!.proceeds).toBe('185');
+      expect(ethDisposal!.costBasis).toBe('200');
+      expect(btcDisposal!.costBasis).toBe('200');
+      expect(ethDisposal!.gainLoss).toBe('-15');
+      expect(btcDisposal!.gainLoss).toBe('-15');
+    });
+  });
+
   // ─── Test 4: Holding period classification ───────────────────────────
   describe('holding period classification', () => {
     it('classifies < 365 days as short-term', () => {
@@ -449,6 +612,105 @@ describe('computeTax', () => {
 
       expect(result.disposals).toHaveLength(1);
       // Jan 1 → Jun 1 = 152 days → short-term
+      expect(result.disposals[0]!.term).toBe('short-term');
+    });
+
+    it('classifies a leap-year 366-day holding (exact one year) as short-term', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-leap',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-leap',
+          timestamp: new Date('2025-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2025,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      // 2024-01-01 → 2025-01-01 = 366 elapsed days (2024 is a leap year),
+      // but exactly one calendar year → short-term.
+      expect(result.disposals[0]!.term).toBe('short-term');
+    });
+
+    it('classifies the day after the calendar anniversary as long-term', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-anniv',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-anniv',
+          timestamp: new Date('2025-01-02T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2025,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      expect(result.disposals[0]!.term).toBe('long-term');
+    });
+
+    it('classifies an exact non-leap 365-day anniversary as short-term', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'buy-nonleap',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'sell-nonleap',
+          timestamp: new Date('2024-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USD', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      expect(result.disposals).toHaveLength(1);
+      // 2023-01-01 → 2024-01-01 = 365 elapsed days, exact one calendar year → short-term.
       expect(result.disposals[0]!.term).toBe('short-term');
     });
   });

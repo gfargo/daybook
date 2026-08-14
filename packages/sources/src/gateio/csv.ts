@@ -36,6 +36,7 @@ import type { AssetLeg, RawEvent, RawEventType } from '@daybook/ledger';
 import {
   FIAT_CURRENCIES,
   assetLeg,
+  hashString,
   normalizeAsset,
   parseAmount,
   parseCsvRows,
@@ -102,9 +103,8 @@ export function parseGateioCsv(
   // Group rows by action_data correlation ID. Rows without an action_data
   // are emitted as singletons (each row becomes its own group).
   const groups = new Map<string, NormalizedRow[]>();
-  let syntheticGroupIndex = 0;
   for (const row of rows) {
-    const key = pick(row, ['action_data', 'actiondata']) || `__row__${syntheticGroupIndex++}`;
+    const key = pick(row, ['action_data', 'actiondata']) || syntheticGroupKey(row);
     const list = groups.get(key);
     if (list) list.push(row);
     else groups.set(key, [row]);
@@ -136,6 +136,20 @@ function looksLikeBillingDetails(rows: NormalizedRow[]): boolean {
   if (!first) return false;
   const headers = new Set(Object.keys(first.values));
   return BILLING_HEADERS.every((h) => headers.has(h));
+}
+
+// Grouping key for rows without an action_data correlation ID. Derived from
+// load-bearing fields only (time, desc, asset, change_amount) — never from
+// row position — so the same logical event gets the same key regardless of
+// which other rows precede it in a given export.
+function syntheticGroupKey(row: NormalizedRow): string {
+  const seed = [
+    pick(row, ['time']) ?? '',
+    pick(row, ['action_desc', 'actiondesc']) ?? '',
+    pick(row, ['type', 'currency', 'coin']) ?? '',
+    pick(row, ['change_amount', 'changeamount']) ?? '',
+  ].join('|');
+  return hashString(seed);
 }
 
 // ─── Group classification ───────────────────────────────────────────────

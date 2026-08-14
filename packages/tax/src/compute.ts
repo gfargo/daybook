@@ -22,13 +22,7 @@ import type { TaxResult, DisposalResult, IncomeSummary } from './types.js';
 import { applyWashSaleFlags } from './wash-sale.js';
 import type { AcquisitionRecord } from './wash-sale.js';
 import { canonicalAsset } from './pricing/asset-aliases.js';
-
-// ─────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────
-
-/** Milliseconds in one day. */
-const MS_PER_DAY = 86_400_000;
+import { classifyTerm } from './holding-period.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Config
@@ -40,7 +34,12 @@ const MS_PER_DAY = 86_400_000;
 export interface ComputeTaxConfig {
   /** Cost-basis strategy to use (FIFO, HIFO). */
   method: CostBasisStrategy;
-  /** Number of days for long-term holding period threshold. Default 365. */
+  /**
+   * @deprecated No longer consulted. Term is now determined by calendar
+   * anniversary (see `classifyTerm` in `holding-period.ts`), matching the
+   * IRS "held more than one year" rule exactly across leap years. Retained
+   * on the config type for source compatibility with existing callers.
+   */
   holdingPeriodDays: number;
   /** Tax year to compute. */
   year: number;
@@ -233,7 +232,7 @@ export function computeTax(
   // Reset lot ID counter for deterministic output
   lotIdCounter = 0;
 
-  const { method, holdingPeriodDays, year } = config;
+  const { method, year } = config;
   const perAccount = config.lotPool === 'per-account';
   const feeAllocation = config.feeAllocation ?? 'subtract-from-proceeds';
   const yearStart = new Date(`${year}-01-01T00:00:00Z`);
@@ -319,15 +318,23 @@ export function computeTax(
           acquisitions.push({ asset, acquiredAt: entry.timestamp });
         }
 
+        // Pro-rata weights for allocating the entry's total fee across
+        // out-legs, by USD value. Out-legs with no resolvable USD value
+        // are excluded from the weighted sum; if none of the out-legs are
+        // priced, the fee is split equally across them instead.
+        const outLegUsds = outLegs.map((l) => {
+          const usd = resolveUsd(l);
+          return usd ? new Decimal(usd).abs() : null;
+        });
+        const totalOutUsd = outLegUsds.reduce<Decimal>(
+          (sum, usd) => (usd ? sum.plus(usd) : sum),
+          new Decimal(0),
+        );
+        let remainingFeeUsd = totalFeeUsd;
+
         // Dispose lots for negative (sell) legs — only in the tax year
-        //
-        // Pre-existing quirk (not introduced by feeAllocation): when a trade
-        // has multiple outLegs, `totalFeeUsd` is the *entry's* full fee, not
-        // per-leg, so under 'subtract-from-proceeds' it is subtracted from
-        // every outLeg's proceeds below — not split across them. This
-        // matches prior byte-for-byte behaviour and is intentionally
-        // preserved here rather than fixed.
-        for (const leg of outLegs) {
+        for (let i = 0; i < outLegs.length; i++) {
+          const leg = outLegs[i]!;
           const absAmount = new Decimal(leg.amount).abs();
           const asset = canonicalAsset(leg.asset);
           const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
@@ -357,25 +364,39 @@ export function computeTax(
             unpricedEvents.push(entry.id);
           }
 
+          // Allocate this leg's share of the entry's total fee. The last
+          // out-leg absorbs whatever remains so the shares always sum to
+          // exactly totalFeeUsd, regardless of decimal rounding. Only used
+          // under 'subtract-from-proceeds' below — under 'add-to-basis' the
+          // fee was already folded into the acquired lots' basis above.
+          const isLastLeg = i === outLegs.length - 1;
+          let allocatedFee: Decimal;
+          if (isLastLeg) {
+            allocatedFee = remainingFeeUsd;
+          } else {
+            const legUsdWeight = outLegUsds[i];
+            const weight = totalOutUsd.isZero()
+              ? new Decimal(1).div(outLegs.length)
+              : legUsdWeight
+                ? legUsdWeight.div(totalOutUsd)
+                : new Decimal(0);
+            allocatedFee = totalFeeUsd.times(weight);
+          }
+          remainingFeeUsd = remainingFeeUsd.minus(allocatedFee);
+
           const rawProceeds = legUsd ? new Decimal(legUsd).abs() : new Decimal(0);
-          // 'subtract-from-proceeds' (default): fee reduces proceeds.
+          // 'subtract-from-proceeds' (default): this leg's pro-rata share
+          // of the fee reduces its proceeds.
           // 'add-to-basis': fee is already folded into acquired-lot basis
           // above, so proceeds are untouched — unless there was no priced
-          // in-leg to allocate to, in which case fall back to subtracting
-          // here so the fee is never silently dropped.
+          // in-leg to allocate to, in which case fall back to the pro-rata
+          // subtract-from-proceeds behavior so the fee is never silently
+          // dropped.
           const netProceeds = allocateFeeToBasis
             ? rawProceeds
-            : rawProceeds.minus(totalFeeUsd);
+            : rawProceeds.minus(allocatedFee);
           const costBasis = new Decimal(disposal.costBasis);
           const gainLoss = netProceeds.minus(costBasis);
-
-          // Determine holding period
-          const holdingMs =
-            entry.timestamp.getTime() - disposal.acquiredAt.getTime();
-          const term: 'short-term' | 'long-term' =
-            holdingMs > holdingPeriodDays * MS_PER_DAY
-              ? 'long-term'
-              : 'short-term';
 
           // Only record disposals that fall within the tax year
           if (
@@ -387,7 +408,6 @@ export function computeTax(
               proceeds: netProceeds.toString(),
               costBasis: costBasis.toString(),
               gainLoss: gainLoss.toString(),
-              term,
               sourceEntryId: entry.id,
             });
           }
@@ -477,14 +497,6 @@ export function computeTax(
           const costBasis = new Decimal(disposal.costBasis);
           const gainLoss = proceeds.minus(costBasis);
 
-          // Determine holding period
-          const holdingMs =
-            entry.timestamp.getTime() - disposal.acquiredAt.getTime();
-          const term: 'short-term' | 'long-term' =
-            holdingMs > holdingPeriodDays * MS_PER_DAY
-              ? 'long-term'
-              : 'short-term';
-
           // Only record disposals that fall within the tax year
           if (
             entry.timestamp >= yearStart &&
@@ -495,7 +507,6 @@ export function computeTax(
               proceeds: proceeds.toString(),
               costBasis: costBasis.toString(),
               gainLoss: gainLoss.toString(),
-              term,
               sourceEntryId: entry.id,
             });
           }
@@ -629,13 +640,8 @@ export function computeTax(
 
         const gainLoss = proceeds.minus(costBasis);
 
-        // Determine holding period
-        const holdingMs =
-          entry.timestamp.getTime() - acquiredAt.getTime();
-        const term: 'short-term' | 'long-term' =
-          holdingMs > holdingPeriodDays * MS_PER_DAY
-            ? 'long-term'
-            : 'short-term';
+        // Determine holding period by calendar anniversary, not day count
+        const term = classifyTerm(acquiredAt, entry.timestamp);
 
         // Only record disposals that fall within the tax year
         if (
