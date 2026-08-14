@@ -178,16 +178,17 @@ describe('compareMethods integration', () => {
     const subtractResult = compareMethods(entries, 2024, undefined, undefined, 'subtract-from-proceeds');
     const fifoSubtract = subtractResult.results.find(r => r.method === 'FIFO')!.result;
     expect(fifoSubtract.disposals[0]!.gainLoss).toBe('1450');
-
-    // add-to-basis: gain = 2500 - (1000 + 50) = 1450 too, but proceeds/basis split differently
-    const addResult = compareMethods(entries, 2024, undefined, undefined, 'add-to-basis');
-    const fifoAdd = addResult.results.find(r => r.method === 'FIFO')!.result;
-    expect(fifoAdd.disposals[0]!.proceeds).toBe('2500');
-    expect(fifoAdd.disposals[0]!.costBasis).toBe('1050');
-    expect(fifoAdd.disposals[0]!.gainLoss).toBe('1450');
-
     expect(fifoSubtract.disposals[0]!.proceeds).toBe('2450');
     expect(fifoSubtract.disposals[0]!.costBasis).toBe('1000');
+
+    // add-to-basis: entry-sell-1 disposes ETH for USD with no priced
+    // in-leg to fold the fee into, so it falls back to the same pro-rata
+    // subtract-from-proceeds behavior as the default policy.
+    const addResult = compareMethods(entries, 2024, undefined, undefined, 'add-to-basis');
+    const fifoAdd = addResult.results.find(r => r.method === 'FIFO')!.result;
+    expect(fifoAdd.disposals[0]!.proceeds).toBe('2450');
+    expect(fifoAdd.disposals[0]!.costBasis).toBe('1000');
+    expect(fifoAdd.disposals[0]!.gainLoss).toBe('1450');
   });
 });
 

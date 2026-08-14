@@ -54,12 +54,15 @@ export interface ComputeTaxConfig {
    */
   lotPool?: 'universal' | 'per-account';
   /**
-   * How trade fees are applied to a disposal.
+   * How trade fees affect gain/loss.
    *
-   * `'subtract-from-proceeds'` (default) — fees reduce proceeds.
+   * `'subtract-from-proceeds'` (default) — fee USD reduces disposal proceeds,
+   * matching prior behaviour byte-for-byte.
    *
-   * `'add-to-basis'` — proceeds stay gross; fees are added to cost basis
-   * instead.
+   * `'add-to-basis'` — fee USD is added to the cost basis of the acquired
+   * (buy) lots instead of reducing proceeds. If a trade has no priced
+   * acquired leg to allocate the fee to (e.g. a pure sell to fiat), the fee
+   * falls back to reducing proceeds so it is never silently dropped.
    */
   feeAllocation?: 'add-to-basis' | 'subtract-from-proceeds';
 }
@@ -270,6 +273,19 @@ export function computeTax(
           }
         }
 
+        // For 'add-to-basis', allocate fees proportionally across priced
+        // in-legs by USD value. If there are no priced in-legs, fall back
+        // to subtracting the fee from proceeds below so it isn't dropped.
+        let totalInLegUsd = new Decimal(0);
+        if (feeAllocation === 'add-to-basis') {
+          for (const leg of inLegs) {
+            const usd = resolveUsd(leg);
+            if (usd) totalInLegUsd = totalInLegUsd.plus(new Decimal(usd).abs());
+          }
+        }
+        const allocateFeeToBasis =
+          feeAllocation === 'add-to-basis' && totalInLegUsd.gt(0);
+
         // Acquire lots for positive (buy) legs
         for (const leg of inLegs) {
           const usd = resolveUsd(leg);
@@ -279,11 +295,21 @@ export function computeTax(
           }
           const asset = canonicalAsset(leg.asset);
           const account = resolveAccount(leg, perAccount, warnedMissing, warnings);
+
+          let unitCostUsd: string;
+          if (allocateFeeToBasis) {
+            const legUsdAbs = new Decimal(usd).abs();
+            const feeShare = totalFeeUsd.times(legUsdAbs).div(totalInLegUsd);
+            unitCostUsd = unitCost(leg, legUsdAbs.plus(feeShare).toString());
+          } else {
+            unitCostUsd = unitCost(leg, usd);
+          }
+
           lotBook.acquire({
             id: nextLotId(entry.id, asset),
             asset,
             amount: new Decimal(leg.amount).abs().toString(),
-            unitCostUsd: unitCost(leg, usd),
+            unitCostUsd,
             acquiredAt: entry.timestamp,
             sourceEntryId: entry.id,
           }, account);
@@ -340,7 +366,9 @@ export function computeTax(
 
           // Allocate this leg's share of the entry's total fee. The last
           // out-leg absorbs whatever remains so the shares always sum to
-          // exactly totalFeeUsd, regardless of decimal rounding.
+          // exactly totalFeeUsd, regardless of decimal rounding. Only used
+          // under 'subtract-from-proceeds' below — under 'add-to-basis' the
+          // fee was already folded into the acquired lots' basis above.
           const isLastLeg = i === outLegs.length - 1;
           let allocatedFee: Decimal;
           if (isLastLeg) {
@@ -357,16 +385,17 @@ export function computeTax(
           remainingFeeUsd = remainingFeeUsd.minus(allocatedFee);
 
           const rawProceeds = legUsd ? new Decimal(legUsd).abs() : new Decimal(0);
-          let costBasis = new Decimal(disposal.costBasis);
-          // Fees either reduce proceeds (default) or add to cost basis,
-          // per config.feeAllocation.
-          const netProceeds =
-            feeAllocation === 'add-to-basis'
-              ? rawProceeds
-              : rawProceeds.minus(allocatedFee);
-          if (feeAllocation === 'add-to-basis') {
-            costBasis = costBasis.plus(allocatedFee);
-          }
+          // 'subtract-from-proceeds' (default): this leg's pro-rata share
+          // of the fee reduces its proceeds.
+          // 'add-to-basis': fee is already folded into acquired-lot basis
+          // above, so proceeds are untouched — unless there was no priced
+          // in-leg to allocate to, in which case fall back to the pro-rata
+          // subtract-from-proceeds behavior so the fee is never silently
+          // dropped.
+          const netProceeds = allocateFeeToBasis
+            ? rawProceeds
+            : rawProceeds.minus(allocatedFee);
+          const costBasis = new Decimal(disposal.costBasis);
           const gainLoss = netProceeds.minus(costBasis);
 
           // Only record disposals that fall within the tax year

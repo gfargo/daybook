@@ -431,6 +431,7 @@ export async function exportCommand(
           holdingPeriodDays: 365,
           year: yearNum,
           lotPool: config.tax.lotPool,
+          feeAllocation: config.tax.feeAllocation,
         });
 
         // Collect all lot IDs that appear in disposal results
