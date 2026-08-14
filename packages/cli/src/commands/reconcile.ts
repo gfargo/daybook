@@ -130,6 +130,7 @@ export async function reconcileCommand(
       holdingPeriodDays: 365,
       year: yearNum,
       lotPool: config.tax.lotPool,
+      feeAllocation: config.tax.feeAllocation,
     });
 
     // 6. Parse 1099-DA CSV
