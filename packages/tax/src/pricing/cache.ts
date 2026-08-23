@@ -30,6 +30,23 @@ export function dayUtc(timestamp: Date): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * How long (in seconds) a negative-cache miss entry is considered fresh.
+ *
+ * During this window, priceAt() returns null immediately without hitting
+ * any provider. After expiry the entry stays in the DB but is ignored,
+ * so the provider is re-queried on the next run.
+ *
+ * 7 days: generous enough that CoinGecko won't suddenly have data for a
+ * long-tail token overnight, but short enough that any new listing picks
+ * up within a week.
+ */
+export const NEGATIVE_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
+// ─────────────────────────────────────────────────────────────────────────
 // Cache
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -95,5 +112,82 @@ export class PriceCache {
    */
   set(asset: string, day: number, source: string, priceUsd: string): void {
     this.setStmt.run(asset, day, source, priceUsd, Math.floor(Date.now() / 1000));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Negative-miss cache
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cache for genuine "no data" misses, backed by the `price_lookup_misses`
+ * SQLite table (migration 005).
+ *
+ * A miss is recorded only when ALL cacheable providers return null cleanly
+ * (i.e. the asset is genuinely unpriced, not a network failure). Transient
+ * errors (429-after-retries, network down) must NOT produce a miss entry —
+ * the provider must throw for those cases so PricingChain can distinguish them.
+ *
+ * Miss entries are respected for `NEGATIVE_CACHE_TTL_SECONDS` after being
+ * recorded. Expired entries remain in the table but are ignored; a re-query
+ * is attempted on the next run, and if still null the entry is refreshed.
+ *
+ * ```sql
+ * CREATE TABLE price_lookup_misses (
+ *   asset      TEXT    NOT NULL,
+ *   day        INTEGER NOT NULL,
+ *   source     TEXT    NOT NULL,
+ *   checked_at INTEGER NOT NULL,
+ *   PRIMARY KEY (asset, day, source)
+ * );
+ * ```
+ */
+export class PriceMissCache {
+  private readonly checkStmt;
+  private readonly recordStmt;
+
+  constructor(private readonly db: DatabaseInstance) {
+    this.checkStmt = db.prepare(`
+      SELECT checked_at
+      FROM price_lookup_misses
+      WHERE asset = ? AND day = ? AND source = ?
+      LIMIT 1
+    `);
+
+    this.recordStmt = db.prepare(`
+      INSERT OR REPLACE INTO price_lookup_misses (asset, day, source, checked_at)
+      VALUES (?, ?, ?, ?)
+    `);
+  }
+
+  /**
+   * Return `true` if there is a fresh (within TTL) miss entry for this
+   * (asset, day) pair. The `source` value used is `'chain'` — one entry
+   * per (asset, day) regardless of how many providers were tried.
+   *
+   * @param asset - Canonical ticker.
+   * @param day   - Unix seconds at 00:00 UTC.
+   * @param ttlSeconds - How old (in seconds) a miss may be before it expires.
+   */
+  hasFreshMiss(asset: string, day: number, ttlSeconds: number): boolean {
+    const row = this.checkStmt.get(asset, day, 'chain') as
+      | { checked_at: number }
+      | undefined;
+    if (!row) return false;
+    const ageSeconds = Math.floor(Date.now() / 1000) - row.checked_at;
+    return ageSeconds < ttlSeconds;
+  }
+
+  /**
+   * Record a clean all-null miss for (asset, day).
+   *
+   * Only call this when providers returned null without throwing — i.e. there
+   * was no data, not a transient failure.
+   *
+   * @param asset - Canonical ticker.
+   * @param day   - Unix seconds at 00:00 UTC.
+   */
+  recordMiss(asset: string, day: number): void {
+    this.recordStmt.run(asset, day, 'chain', Math.floor(Date.now() / 1000));
   }
 }

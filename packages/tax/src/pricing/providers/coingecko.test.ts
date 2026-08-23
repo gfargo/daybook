@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CoinGeckoProvider } from './coingecko.js';
+import { CoinGeckoProvider, CoinGeckoTransientError } from './coingecko.js';
 
 describe('CoinGeckoProvider', () => {
   const fetchMock = vi.fn();
@@ -14,6 +14,8 @@ describe('CoinGeckoProvider', () => {
     vi.useRealTimers();
   });
 
+  // ─── Basic happy-path ────────────────────────────────────────────────
+
   it('fetches historical prices by CoinGecko coin id and sends API key header', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -23,7 +25,7 @@ describe('CoinGeckoProvider', () => {
       }),
     });
 
-    const provider = new CoinGeckoProvider({ apiKey: 'cg-test-key' });
+    const provider = new CoinGeckoProvider({ apiKey: 'cg-test-key', requestsPerMinute: 600 });
     const result = await provider.getPrice('ETH', new Date('2024-01-15T12:00:00Z'));
 
     expect(result).toEqual({
@@ -50,7 +52,7 @@ describe('CoinGeckoProvider', () => {
       }),
     });
 
-    const provider = new CoinGeckoProvider();
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
     const result = await provider.getPrice(
       'KITTY',
       new Date('2024-01-15T12:00:00Z'),
@@ -83,7 +85,7 @@ describe('CoinGeckoProvider', () => {
         }),
       });
 
-    const provider = new CoinGeckoProvider();
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
     const resultPromise = provider.getPrice('BTC', new Date('2024-01-15T12:00:00Z'));
 
     await vi.advanceTimersByTimeAsync(1000);
@@ -95,15 +97,99 @@ describe('CoinGeckoProvider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('returns null instead of throwing on network errors', async () => {
+  // ─── Transient error behaviour (throw, not null) ─────────────────────
+
+  it('throws CoinGeckoTransientError when 429 exhausted after all retries', async () => {
+    vi.useFakeTimers();
+    // Return 429 on every attempt (maxRetries = 3 → 4 total attempts)
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+    });
+
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
+    let caughtError: unknown;
+    const resultPromise = provider
+      .getPrice('ETH', new Date('2024-01-15T12:00:00Z'))
+      .catch(e => {
+        caughtError = e;
+      });
+
+    // Advance timers past all backoff delays (1s + 2s + 4s = 7s)
+    await vi.advanceTimersByTimeAsync(8000);
+    await resultPromise;
+
+    expect(caughtError).toBeInstanceOf(CoinGeckoTransientError);
+    expect((caughtError as CoinGeckoTransientError).message).toMatch(/429.*exhausted/i);
+  });
+
+  it('throws CoinGeckoTransientError on non-2xx response (e.g. 500)', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    });
+
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
+    await expect(
+      provider.getPrice('ETH', new Date('2024-01-15T12:00:00Z')),
+    ).rejects.toBeInstanceOf(CoinGeckoTransientError);
+  });
+
+  it('throws CoinGeckoTransientError on network error after all retries', async () => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error('network down'));
 
-    const provider = new CoinGeckoProvider();
-    const resultPromise = provider.getPrice('ETH', new Date('2024-01-15T12:00:00Z'));
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
+    let caughtError: unknown;
+    const resultPromise = provider
+      .getPrice('ETH', new Date('2024-01-15T12:00:00Z'))
+      .catch(e => {
+        caughtError = e;
+      });
 
-    await vi.advanceTimersByTimeAsync(7000);
+    await vi.advanceTimersByTimeAsync(8000);
+    await resultPromise;
 
-    await expect(resultPromise).resolves.toBeNull();
+    expect(caughtError).toBeInstanceOf(CoinGeckoTransientError);
+  });
+
+  // ─── Genuine no-data (return null) ──────────────────────────────────
+
+  it('returns null (not throws) when 200 OK but market_data is missing', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'some-obscure-token' }), // no market_data
+    });
+
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
+    const result = await provider.getPrice('ETH', new Date('2024-01-15T12:00:00Z'));
+    expect(result).toBeNull();
+  });
+
+  it('returns null (not throws) when ticker is unknown and no contractAddress provided', async () => {
+    // No fetch should happen for a totally unknown ticker without a contract address
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
+    const result = await provider.getPrice('UNKNOWNTOKEN', new Date('2024-01-15T12:00:00Z'));
+    expect(result).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns null (not throws) when contract lookup returns empty prices array', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ prices: [] }),
+    });
+
+    const provider = new CoinGeckoProvider({ requestsPerMinute: 600 });
+    const result = await provider.getPrice(
+      'KITTY',
+      new Date('2024-01-15T12:00:00Z'),
+      '0xabcdef',
+    );
+    expect(result).toBeNull();
   });
 });

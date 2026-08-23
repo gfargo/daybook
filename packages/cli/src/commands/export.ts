@@ -415,7 +415,12 @@ export async function exportCommand(
     );
 
     const allHydratedEntries = [...priorEntries, ...entries];
-    await hydratePrices(allHydratedEntries, pricingChain);
+    await hydratePrices(allHydratedEntries, pricingChain, (done, total) => {
+      if (process.stderr.isTTY) {
+        process.stderr.write(`\rPricing ${done}/${total}…`);
+        if (done === total) process.stderr.write('\n');
+      }
+    });
 
     // 7. Run computeTax() — handle Specific ID specially
     let strategy: CostBasisStrategy;
