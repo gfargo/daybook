@@ -176,6 +176,7 @@ function buildTradesV2Group(
   let earliest: Date | undefined;
   let symbol: string | undefined;
   const legs: AssetLeg[] = [];
+  let hasFailedLeg = false;
 
   for (const row of rows) {
     const timeStr = pick(row, ['time']);
@@ -190,13 +191,25 @@ function buildTradesV2Group(
     const asset = normalizeAsset(pick(row, ['trading unit', 'tradingunit']));
     const amount = parseAmount(pick(row, ['amount']));
 
-    if (!asset || !amount) continue;
+    if (!asset || !amount) {
+      warnings.push(
+        `Row ${row.rowNumber} skipped: OKX V2 trade order ${orderId} row missing or unparsable asset/amount`,
+      );
+      hasFailedLeg = true;
+      continue;
+    }
 
     const isFee = tradeType.includes('fee');
     let signedAmount = amount;
 
     // V2 amounts are usually signed already, but fall back to action when zero-signed
-    if (signedAmount.isZero()) continue;
+    if (signedAmount.isZero()) {
+      warnings.push(
+        `Row ${row.rowNumber} skipped: OKX V2 trade order ${orderId} row has zero amount`,
+      );
+      hasFailedLeg = true;
+      continue;
+    }
     if (!isFee) {
       if (signedAmount.isPositive() && action === 'sell') {
         signedAmount = signedAmount.negated();
@@ -215,6 +228,16 @@ function buildTradesV2Group(
     warnings.push(`OKX V2 trade order ${orderId} skipped: no parsable timestamps`);
     return undefined;
   }
+
+  // If any leg in the group failed to parse, drop the whole group so we
+  // never emit a partial (e.g. a free receipt with zero basis).
+  if (hasFailedLeg) {
+    warnings.push(
+      `OKX V2 trade order ${orderId} skipped: one or more rows could not be parsed — dropping whole group`,
+    );
+    return undefined;
+  }
+
   if (legs.length === 0) {
     warnings.push(`OKX V2 trade order ${orderId} skipped: no asset movements parsed`);
     return undefined;

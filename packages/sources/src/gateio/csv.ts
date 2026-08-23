@@ -179,12 +179,20 @@ function buildEventFromGroup(
     const asset = normalizeAsset(pick(row, ['type', 'currency', 'coin']));
     const change = parseAmount(pick(row, ['change_amount', 'changeamount']));
 
-    if (!asset || !change || change.isZero()) continue;
+    if (!asset || !change || change.isZero()) {
+      warnings.push(
+        `Row ${row.rowNumber} skipped: Gate.io row missing or zero asset/change_amount`,
+      );
+      continue;
+    }
 
     legs.push({ asset, amount: change, desc, rowNumber: row.rowNumber });
   }
 
   if (!earliest || legs.length === 0) {
+    warnings.push(
+      `Gate.io group ${actionData} skipped: no parsable rows in group`,
+    );
     return undefined;
   }
 

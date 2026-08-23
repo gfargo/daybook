@@ -271,6 +271,9 @@ function buildOrderEvent(
   );
 
   if (!pair || !filledQty || !orderAmount || filledQty.isZero()) {
+    warnings.push(
+      `Row ${row.rowNumber} skipped: MEXC order row missing pair/filled quantity/order amount`,
+    );
     return undefined;
   }
 

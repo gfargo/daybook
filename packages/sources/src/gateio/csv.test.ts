@@ -137,6 +137,33 @@ describe('parseGateioCsv', () => {
     expect(result.unparsedRowCount).toBe(1);
   });
 
+  it('emits a warning for zero-change rows', () => {
+    // Reproduces the silent-drop bug: zero/missing change_amount rows were silently continued.
+    const csv = [
+      'no,time,action_desc,action_data,type,change_amount,amount,total',
+      '1,2024-07-01 09:00:00,Deposits,dep-zero,BTC,0,0,0',
+    ].join('\n');
+
+    const result = parseGateioCsv(csv, { accountId });
+    expect(result.events).toEqual([]);
+    expect(result.unparsedRowCount).toBe(1);
+    expect(result.warnings.some((w) => w.includes('missing or zero'))).toBe(true);
+  });
+
+  it('emits a warning when a whole group has no parsable rows', () => {
+    // A group where all rows are zero/missing → group-level warning fires.
+    const csv = [
+      'no,time,action_desc,action_data,type,change_amount,amount,total',
+      '1,2024-07-02 09:00:00,Order Filled,group-empty,,0,0,0',
+      '2,2024-07-02 09:00:00,Order Filled,group-empty,USDT,0,0,0',
+    ].join('\n');
+
+    const result = parseGateioCsv(csv, { accountId });
+    expect(result.events).toEqual([]);
+    expect(result.unparsedRowCount).toBe(2);
+    expect(result.warnings.some((w) => w.includes('group-empty'))).toBe(true);
+  });
+
   it('produces stable IDs across reparses (idempotent)', () => {
     const csv = [
       'no,time,action_desc,action_data,type,change_amount,amount,total',

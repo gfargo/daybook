@@ -35,6 +35,12 @@ export const FIAT_CURRENCIES: ReadonlySet<string> = new Set([
   'HKD',
   'SGD',
   'BRL',
+  'TRY',
+  'KRW',
+  'PLN',
+  'INR',
+  'MXN',
+  'ZAR',
 ]);
 
 /** A CSV row, indexed by raw header name. */

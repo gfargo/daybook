@@ -236,6 +236,20 @@ describe('parseMexcCsv', () => {
     expect(result.warnings.length).toBe(1);
   });
 
+  it('warns and skips order rows missing critical fields (pair/filled quantity/order amount)', () => {
+    // Reproduces the silent-drop bug: buildOrderEvent returned undefined without a warning.
+    const csv = [
+      'UID,Pairs,Time,Type,Direction,Average Filled Price,Order Price,Filled Quantity,Order Quantity,Order Amount,Status',
+      '123,BTCUSDT,2024-10-01 10:00:00,LIMIT,Buy,30000,30000,,0.02,,Filled',
+    ].join('\n');
+
+    const result = parseMexcCsv(csv, { accountId });
+    expect(result.events).toHaveLength(0);
+    expect(result.unparsedRowCount).toBe(1);
+    expect(result.warnings.length).toBe(1);
+    expect(result.warnings[0]).toMatch(/MEXC order row missing/i);
+  });
+
   it('rejects unrecognized headers', () => {
     expect(() => parseMexcCsv('foo,bar\n1,2', { accountId })).toThrow(
       'MEXC CSV header not recognized',

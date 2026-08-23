@@ -193,6 +193,12 @@ describe('csv-helpers', () => {
         expect(FIAT_CURRENCIES.has(c)).toBe(true);
       }
     });
+
+    it('contains the regional fiats added in OSS-1396 (TRY, KRW, PLN, INR, MXN, ZAR)', () => {
+      for (const c of ['TRY', 'KRW', 'PLN', 'INR', 'MXN', 'ZAR']) {
+        expect(FIAT_CURRENCIES.has(c)).toBe(true);
+      }
+    });
   });
 
   describe('parsePackedFee', () => {
