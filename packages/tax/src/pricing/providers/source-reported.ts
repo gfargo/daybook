@@ -28,6 +28,13 @@ import { dayUtc } from '../cache.js';
  */
 export class SourceReportedProvider implements PricingProvider {
   readonly name = 'source-reported';
+  /**
+   * Source-reported prices are per-transaction fill prices from a specific
+   * venue — not a market price for the whole day.  Caching them under
+   * (asset, day) would let one trade's execution price shadow every other
+   * event on that day, so we bypass the shared cache entirely.
+   */
+  readonly cacheMode = 'bypass' as const;
 
   private readonly stmt;
 

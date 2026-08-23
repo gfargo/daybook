@@ -51,11 +51,15 @@ export interface PricingProvider {
    * @param asset - Ticker symbol (e.g. 'ETH', 'BTC') or contract address.
    * @param timestamp - The point in time to price at (daily granularity).
    * @param contractAddress - Optional ERC-20 contract address for on-chain tokens.
+   * @param platform - Optional CoinGecko platform ID (e.g. 'polygon-pos',
+   *   'arbitrum-one') for chain-aware contract lookups. Providers that do
+   *   not perform contract-address resolution may ignore this parameter.
    * @returns The price result, or `null` if this provider has no data.
    */
   getPrice(
     asset: string,
     timestamp: Date,
     contractAddress?: string,
+    platform?: string,
   ): Promise<PriceResult | null>;
 }

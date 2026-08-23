@@ -57,7 +57,8 @@ export class PricingChain {
    *
    * 1. Canonicalizes the asset via asset-aliases (POL→MATIC, ETH2→ETH).
    * 2. Checks cache-bypassing providers.
-   * 3. Checks the cache for a hit on the canonical asset + day.
+   * 3. Checks the cache for a hit on the canonical asset + day,
+   *    preferring the highest-priority cacheable provider's source.
    * 4. Tries cacheable providers in order until one returns a result.
    * 5. Caches the winning cacheable result.
    * 6. Returns `null` if all providers return null.
@@ -65,12 +66,16 @@ export class PricingChain {
    * @param asset - Ticker symbol or contract address.
    * @param timestamp - Date to price at.
    * @param contractAddress - Optional ERC-20 contract address.
+   * @param platform - Optional CoinGecko platform ID for contract lookups
+   *   (e.g. 'polygon-pos', 'arbitrum-one'). Forwarded to providers that
+   *   support per-chain contract address resolution.
    * @returns The price result, or `null` if no provider has data.
    */
   async priceAt(
     asset: string,
     timestamp: Date,
     contractAddress?: string,
+    platform?: string,
   ): Promise<PriceResult | null> {
     const canonical = canonicalAsset(asset);
     const day = dayUtc(timestamp);
@@ -78,19 +83,25 @@ export class PricingChain {
     for (const provider of this.providers) {
       if (provider.cacheMode !== 'bypass') continue;
 
-      const result = await provider.getPrice(canonical, timestamp, contractAddress);
+      const result = await provider.getPrice(canonical, timestamp, contractAddress, platform);
       if (result) return result;
     }
 
-    // 1. Check cache
-    const cached = this.cache.get(canonical, day);
+    // Build the ordered list of cacheable provider names for deterministic
+    // cache resolution — earlier in the chain = higher priority.
+    const cacheableProviderNames = this.providers
+      .filter(p => p.cacheMode !== 'bypass')
+      .map(p => p.name);
+
+    // 1. Check cache (source-aware, deterministic)
+    const cached = this.cache.get(canonical, day, cacheableProviderNames);
     if (cached) return cached;
 
     // 2. Try each provider in order
     for (const provider of this.providers) {
       if (provider.cacheMode === 'bypass') continue;
 
-      const result = await provider.getPrice(canonical, timestamp, contractAddress);
+      const result = await provider.getPrice(canonical, timestamp, contractAddress, platform);
       if (result) {
         // 3. Cache the winning result
         this.cache.set(canonical, day, result.source, result.priceUsd);

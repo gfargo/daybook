@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CoinGeckoProvider } from './coingecko.js';
+import { CoinGeckoProvider, COINGECKO_PLATFORM_BY_SOURCE } from './coingecko.js';
 
 describe('CoinGeckoProvider', () => {
   const fetchMock = vi.fn();
@@ -41,7 +41,7 @@ describe('CoinGeckoProvider', () => {
     );
   });
 
-  it('falls back to contract-address lookup when ticker is unknown', async () => {
+  it('falls back to contract-address lookup on the default ethereum platform when ticker is unknown', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -61,10 +61,84 @@ describe('CoinGeckoProvider', () => {
       priceUsd: '0.42',
       source: 'coingecko',
     });
+    // Should use the default 'ethereum' platform, not loop all platforms
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api.coingecko.com/api/v3/coins/ethereum/contract/0xabcdef/market_chart/range?vs_currency=usd&from=1705276800&to=1705363200',
       { headers: { Accept: 'application/json' } },
     );
+  });
+
+  it('uses the provided platform for contract-address lookups (polygon-pos)', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        prices: [[1705276800000, 1.23]],
+      }),
+    });
+
+    const provider = new CoinGeckoProvider();
+    const result = await provider.getPrice(
+      'UNKNOWN',
+      new Date('2024-01-15T12:00:00Z'),
+      '0xPOLYADDR',
+      'polygon-pos',
+    );
+
+    expect(result).toEqual({
+      priceUsd: '1.23',
+      source: 'coingecko',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.coingecko.com/api/v3/coins/polygon-pos/contract/0xpolyaddr/market_chart/range?vs_currency=usd&from=1705276800&to=1705363200',
+      { headers: { Accept: 'application/json' } },
+    );
+  });
+
+  it('uses the provided platform for contract-address lookups (arbitrum-one)', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        prices: [[1705276800000, 9.99]],
+      }),
+    });
+
+    const provider = new CoinGeckoProvider();
+    const result = await provider.getPrice(
+      'UNKNOWN',
+      new Date('2024-01-15T12:00:00Z'),
+      '0xARBIADDR',
+      'arbitrum-one',
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.priceUsd).toBe('9.99');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toContain('/coins/arbitrum-one/contract/');
+  });
+
+  it('does NOT fall back to other platforms when the specified platform returns no data', async () => {
+    // Returns empty prices array — should return null without retrying other platforms
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ prices: [] }),
+    });
+
+    const provider = new CoinGeckoProvider();
+    const result = await provider.getPrice(
+      'UNKNOWN',
+      new Date('2024-01-15T12:00:00Z'),
+      '0xSOMEADDR',
+      'polygon-pos',
+    );
+
+    expect(result).toBeNull();
+    // Exactly one fetch — no platform-loop fallback
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('retries once on HTTP 429 before returning a price', async () => {
@@ -105,5 +179,24 @@ describe('CoinGeckoProvider', () => {
     await vi.advanceTimersByTimeAsync(7000);
 
     await expect(resultPromise).resolves.toBeNull();
+  });
+});
+
+// ─── COINGECKO_PLATFORM_BY_SOURCE ────────────────────────────────────────
+
+describe('COINGECKO_PLATFORM_BY_SOURCE', () => {
+  it('maps all six supported EVM chains to their CoinGecko platform IDs', () => {
+    expect(COINGECKO_PLATFORM_BY_SOURCE.eth).toBe('ethereum');
+    expect(COINGECKO_PLATFORM_BY_SOURCE.polygon).toBe('polygon-pos');
+    expect(COINGECKO_PLATFORM_BY_SOURCE.arbitrum).toBe('arbitrum-one');
+    expect(COINGECKO_PLATFORM_BY_SOURCE.optimism).toBe('optimistic-ethereum');
+    expect(COINGECKO_PLATFORM_BY_SOURCE.base).toBe('base');
+    expect(COINGECKO_PLATFORM_BY_SOURCE.bnb).toBe('binance-smart-chain');
+  });
+
+  it('does not include non-EVM sources', () => {
+    expect(COINGECKO_PLATFORM_BY_SOURCE.coinbase).toBeUndefined();
+    expect(COINGECKO_PLATFORM_BY_SOURCE.kraken).toBeUndefined();
+    expect(COINGECKO_PLATFORM_BY_SOURCE.csv).toBeUndefined();
   });
 });
