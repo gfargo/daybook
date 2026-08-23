@@ -6,11 +6,11 @@
  * logic without network calls.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Database as DatabaseInstance } from 'better-sqlite3';
 import type { PriceResult, PricingProvider } from './provider.js';
-import { PriceCache, dayUtc } from './cache.js';
+import { PriceCache, PriceMissCache, NEGATIVE_CACHE_TTL_SECONDS, dayUtc } from './cache.js';
 import { PricingChain } from './chain.js';
 import { ManualOverrideProvider } from './providers/manual-override.js';
 import { SourceReportedProvider } from './providers/source-reported.js';
@@ -19,11 +19,12 @@ import { SourceReportedProvider } from './providers/source-reported.js';
 
 let db: DatabaseInstance;
 let cache: PriceCache;
+let missCache: PriceMissCache;
 
 /**
  * Create the minimal schema needed for pricing tests.
- * We only need the `prices` and `price_overrides` tables — no need
- * to run the full ledger migration infrastructure.
+ * We only need the `prices`, `price_overrides`, and `price_lookup_misses`
+ * tables — no need to run the full ledger migration infrastructure.
  */
 function createPricingSchema(db: DatabaseInstance): void {
   db.exec(`
@@ -46,6 +47,16 @@ function createPricingSchema(db: DatabaseInstance): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_price_overrides_asset_day ON price_overrides(asset, day);
+
+    CREATE TABLE IF NOT EXISTS price_lookup_misses (
+      asset      TEXT    NOT NULL,
+      day        INTEGER NOT NULL,
+      source     TEXT    NOT NULL,
+      checked_at INTEGER NOT NULL,
+      PRIMARY KEY (asset, day, source)
+    );
+    CREATE INDEX IF NOT EXISTS idx_price_misses_asset_day
+      ON price_lookup_misses(asset, day);
 
     CREATE TABLE IF NOT EXISTS raw_events (
       id TEXT PRIMARY KEY,
@@ -71,6 +82,7 @@ beforeEach(() => {
   db = new Database(':memory:');
   createPricingSchema(db);
   cache = new PriceCache(db);
+  missCache = new PriceMissCache(db);
 });
 
 afterEach(() => {
@@ -335,5 +347,144 @@ describe('PriceCache', () => {
     cache.set('ETH', day, 'coingecko', '2310.00');
     const result = cache.get('ETH', day);
     expect(result!.priceUsd).toBe('2310.00');
+  });
+});
+
+// ─── PriceMissCache ──────────────────────────────────────────────────────
+
+describe('PriceMissCache', () => {
+  it('returns false when no miss has been recorded', () => {
+    const day = dayUtc(JAN_15);
+    expect(missCache.hasFreshMiss('NOPE', day, NEGATIVE_CACHE_TTL_SECONDS)).toBe(false);
+  });
+
+  it('returns true for a just-recorded miss within TTL', () => {
+    const day = dayUtc(JAN_15);
+    missCache.recordMiss('UNKNOWNTOKEN', day);
+    expect(missCache.hasFreshMiss('UNKNOWNTOKEN', day, NEGATIVE_CACHE_TTL_SECONDS)).toBe(true);
+  });
+
+  it('returns false when the TTL has expired', () => {
+    vi.useFakeTimers();
+    const pastMs = Date.now() - (NEGATIVE_CACHE_TTL_SECONDS + 1) * 1000;
+    vi.setSystemTime(pastMs);
+
+    const day = dayUtc(JAN_15);
+    missCache.recordMiss('UNKNOWNTOKEN', day);
+
+    // Wind time forward past the TTL
+    vi.setSystemTime(Date.now() + (NEGATIVE_CACHE_TTL_SECONDS + 2) * 1000);
+    expect(missCache.hasFreshMiss('UNKNOWNTOKEN', day, NEGATIVE_CACHE_TTL_SECONDS)).toBe(false);
+
+    vi.useRealTimers();
+  });
+});
+
+// ─── PricingChain negative-cache integration ─────────────────────────────
+
+describe('PricingChain — negative-cache integration', () => {
+  it('records a miss when all cacheable providers return null', async () => {
+    const chain = new PricingChain(
+      {
+        providers: [
+          nullProvider('source-reported'),
+          nullProvider('coingecko'),
+        ],
+      },
+      cache,
+      missCache,
+    );
+
+    const day = dayUtc(JAN_15);
+    const result = await chain.priceAt('KITTYINU', JAN_15);
+    expect(result).toBeNull();
+    expect(missCache.hasFreshMiss('KITTYINU', day, NEGATIVE_CACHE_TTL_SECONDS)).toBe(true);
+  });
+
+  it('skips providers on the second call when a fresh miss exists', async () => {
+    let callCount = 0;
+    const countingNullProvider: PricingProvider = {
+      name: 'counting-null',
+      async getPrice(): Promise<PriceResult | null> {
+        callCount++;
+        return null;
+      },
+    };
+
+    const chain = new PricingChain(
+      { providers: [countingNullProvider] },
+      cache,
+      missCache,
+    );
+
+    // First call — hits provider (returns null → records miss)
+    await chain.priceAt('KITTYINU', JAN_15);
+    expect(callCount).toBe(1);
+
+    // Second call — should return null from miss cache without calling provider
+    const result = await chain.priceAt('KITTYINU', JAN_15);
+    expect(result).toBeNull();
+    expect(callCount).toBe(1); // still 1
+  });
+
+  it('does NOT record a miss when a provider throws (transient failure)', async () => {
+    const throwingProvider: PricingProvider = {
+      name: 'throwing',
+      async getPrice(): Promise<PriceResult | null> {
+        throw new Error('transient network error');
+      },
+    };
+
+    const chain = new PricingChain(
+      { providers: [throwingProvider] },
+      cache,
+      missCache,
+    );
+
+    const day = dayUtc(JAN_15);
+    const result = await chain.priceAt('ETH', JAN_15);
+    expect(result).toBeNull();
+    // No miss recorded — the error was transient, not "no data"
+    expect(missCache.hasFreshMiss('ETH', day, NEGATIVE_CACHE_TTL_SECONDS)).toBe(false);
+  });
+
+  it('bypass providers (manual override) are never blocked by a miss cache entry', async () => {
+    // Pre-record a miss for ETH
+    const day = dayUtc(JAN_15);
+    missCache.recordMiss('ETH', day);
+
+    // Add a manual override that should still take effect
+    db.prepare(`
+      INSERT INTO price_overrides (id, asset, day, price_usd, note, created_at)
+      VALUES ('ETH:override', 'ETH', ?, '2500.00', NULL, ?)
+    `).run(day, Math.floor(Date.now() / 1000));
+
+    const chain = new PricingChain(
+      {
+        providers: [
+          nullProvider('coingecko'),
+          new ManualOverrideProvider(db),
+        ],
+      },
+      cache,
+      missCache,
+    );
+
+    const result = await chain.priceAt('ETH', JAN_15);
+    // Bypass provider wins even with a negative-cache entry
+    expect(result).toEqual({ priceUsd: '2500.00', source: 'manual-override' });
+  });
+
+  it('backward-compatible: works without a missCache (no miss-cache calls made)', async () => {
+    // Construct chain with no missCache (old API)
+    const chain = new PricingChain(
+      { providers: [nullProvider('coingecko')] },
+      cache,
+      // no missCache argument
+    );
+
+    const result = await chain.priceAt('UNKNOWNTOKEN', JAN_15);
+    expect(result).toBeNull();
+    // Just verifying it doesn't throw — no missCache means no miss recorded
   });
 });

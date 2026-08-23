@@ -15,19 +15,14 @@
 
 import React from 'react';
 import { render } from 'ink';
-import Decimal from 'decimal.js';
 import { createRepo, openDatabase } from '@daybook/ledger';
 import {
     compareMethods,
     summarizeResults,
-    PriceCache,
-    PricingChain,
-    SourceReportedProvider,
-    CoinGeckoProvider,
-    ManualOverrideProvider,
 } from '@daybook/tax';
 import type { MethodSummary } from '@daybook/tax';
 import { expandPath, loadConfig } from '../config.js';
+import { buildPricingChain, hydratePrices } from '../pricing-chain.js';
 import { CompareTable } from './CompareTable.js';
 import { writeJson } from '../ui/index.js';
 
@@ -100,42 +95,15 @@ export async function compareCommand(
     }
 
     // 5. Set up pricing chain (source-reported → CoinGecko → manual override)
-    const cache = new PriceCache(db.raw);
-    const coingeckoApiKeyEnv = config.providers?.coingecko?.apiKeyEnv ?? 'COINGECKO_API_KEY';
-    const coingeckoApiKey = process.env[coingeckoApiKeyEnv];
-
-    const coingeckoOpts = coingeckoApiKey
-      ? { apiKey: coingeckoApiKey }
-      : {};
-
-    const pricingChain = new PricingChain(
-      {
-        providers: [
-          new SourceReportedProvider(db.raw),
-          new CoinGeckoProvider(coingeckoOpts),
-          new ManualOverrideProvider(db.raw),
-        ],
-      },
-      cache,
-    );
+    const pricingChain = buildPricingChain(db, config);
 
     // 6. Hydrate entries with USD prices
-    for (const entry of allEntries) {
-      for (const leg of entry.legs) {
-        if (leg.amountUsdAtTime || leg.amountUsdReportedBySource) continue;
-
-        const result = await pricingChain.priceAt(
-          leg.asset,
-          entry.timestamp,
-          leg.contractAddress,
-        );
-        if (result) {
-          const absAmount = new Decimal(leg.amount).abs();
-          const totalUsd = absAmount.mul(new Decimal(result.priceUsd));
-          leg.amountUsdAtTime = totalUsd.toString();
-        }
+    await hydratePrices(allEntries, pricingChain, (done, total) => {
+      if (process.stderr.isTTY) {
+        process.stderr.write(`\rPricing ${done}/${total}…`);
+        if (done === total) process.stderr.write('\n');
       }
-    }
+    });
 
     // 7. Run compareMethods()
     const compareResult = compareMethods(

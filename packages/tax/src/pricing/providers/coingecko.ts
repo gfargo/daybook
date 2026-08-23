@@ -8,7 +8,15 @@
  * Free tier allows ~30 requests/minute without an API key.
  * Implements exponential backoff on 429 responses, max 3 retries.
  *
- * Returns `null` on any error or missing data — never throws.
+ * Returns `null` for genuine no-data (unknown asset, missing market_data, empty
+ * price array). Throws `CoinGeckoTransientError` on unrecoverable errors
+ * (429-after-all-retries, non-2xx, network failure) so the caller can
+ * distinguish transient failure from a real "no data" miss and avoid
+ * negative-caching transient failures.
+ *
+ * A token-bucket rate limiter is built in; only actual HTTP calls are
+ * throttled — synchronous cache reads and manual-override lookups are
+ * unaffected.
  */
 
 import type { PriceResult, PricingProvider } from '../provider.js';
@@ -70,6 +78,29 @@ const PLATFORM_IDS: Record<string, string> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────
+// Error type
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown by CoinGeckoProvider on unrecoverable / transient errors:
+ * - 429 exhausted after all retries
+ * - Non-2xx HTTP response
+ * - Network / connection failure
+ *
+ * Callers (PricingChain) catch this and DO NOT record a negative-cache miss
+ * for these cases, so a retry on the next run is attempted.
+ */
+export class CoinGeckoTransientError extends Error {
+  constructor(
+    message: string,
+    public override readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = 'CoinGeckoTransientError';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -93,6 +124,38 @@ function sleep(ms: number): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Token-bucket rate limiter
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Minimal token-bucket rate limiter. Tracks when tokens were last consumed
+ * and delays the next request to stay within the per-minute cap.
+ *
+ * Only used internally by CoinGeckoProvider to gate actual HTTP calls.
+ */
+class RateLimiter {
+  private readonly minIntervalMs: number;
+  private lastCallMs = 0;
+
+  constructor(requestsPerMinute: number) {
+    // Spread requests evenly across the minute window.
+    this.minIntervalMs = Math.ceil(60_000 / requestsPerMinute);
+  }
+
+  /**
+   * Wait until enough time has passed since the last call, then resolve.
+   */
+  async throttle(): Promise<void> {
+    const now = Date.now();
+    const elapsed = now - this.lastCallMs;
+    if (elapsed < this.minIntervalMs) {
+      await sleep(this.minIntervalMs - elapsed);
+    }
+    this.lastCallMs = Date.now();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Provider
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -101,6 +164,12 @@ export interface CoinGeckoProviderOptions {
   apiKey?: string;
   /** CoinGecko platform for contract lookups (default: 'ethereum'). */
   platform?: string;
+  /**
+   * Maximum HTTP calls per minute (default: 25 to stay safely under the
+   * free-tier 30 req/min cap). Only actual network calls count; cached
+   * lookups and manual overrides are not throttled.
+   */
+  requestsPerMinute?: number;
 }
 
 /**
@@ -108,20 +177,28 @@ export interface CoinGeckoProviderOptions {
  *
  * Tries ticker-based lookup first, then falls back to contract-address
  * lookup if a `contractAddress` is provided.
+ *
+ * Returns `null` for genuine no-data. Throws `CoinGeckoTransientError` for
+ * transient/unrecoverable failures so callers can avoid negative-caching them.
  */
 export class CoinGeckoProvider implements PricingProvider {
   readonly name = 'coingecko';
 
   private readonly apiKey: string | undefined;
   private readonly platform: string;
+  private readonly rateLimiter: RateLimiter;
 
   constructor(options: CoinGeckoProviderOptions = {}) {
     this.apiKey = options.apiKey;
     this.platform = options.platform ?? 'ethereum';
+    this.rateLimiter = new RateLimiter(options.requestsPerMinute ?? 25);
   }
 
   /**
    * Look up the historical USD price for an asset.
+   *
+   * Returns `null` when no data is available for the asset/date.
+   * Throws `CoinGeckoTransientError` on network/HTTP failures.
    *
    * @param asset - Ticker symbol (e.g. 'ETH').
    * @param timestamp - Date to price at.
@@ -138,6 +215,7 @@ export class CoinGeckoProvider implements PricingProvider {
     if (coinId) {
       const price = await this.fetchByTicker(coinId, timestamp);
       if (price !== null) return price;
+      // null here means no data for this ticker — continue to contract lookup
     }
 
     // Fall back to contract-address lookup
@@ -158,23 +236,21 @@ export class CoinGeckoProvider implements PricingProvider {
     const dateStr = formatDate(timestamp);
     const url = `${BASE_URL}/coins/${coinId}/history?date=${dateStr}&localization=false`;
 
-    try {
-      const data = await this.fetchWithRetry(url);
-      if (!data) return null;
+    // fetchWithRetry throws CoinGeckoTransientError on hard failures,
+    // returns null for empty/missing data (200 OK but no market_data).
+    const data = await this.fetchWithRetry(url);
+    if (!data) return null;
 
-      const marketData = data['market_data'] as
-        | { current_price?: { usd?: number } }
-        | undefined;
-      const usd = marketData?.current_price?.usd;
-      if (usd === undefined || usd === null) return null;
+    const marketData = data['market_data'] as
+      | { current_price?: { usd?: number } }
+      | undefined;
+    const usd = marketData?.current_price?.usd;
+    if (usd === undefined || usd === null) return null;
 
-      return {
-        priceUsd: String(usd),
-        source: this.name,
-      };
-    } catch {
-      return null;
-    }
+    return {
+      priceUsd: String(usd),
+      source: this.name,
+    };
   }
 
   // ─── Contract-address lookup ─────────────────────────────────────────
@@ -189,37 +265,45 @@ export class CoinGeckoProvider implements PricingProvider {
     const from = Math.floor(dayStart.getTime() / 1000);
     const to = from + 86400;
 
-    // Try each known platform
+    // Try each known platform; return the first hit.
+    // If a platform throws a transient error, propagate it immediately.
     for (const platformId of Object.values(PLATFORM_IDS)) {
       const url =
         `${BASE_URL}/coins/${platformId}/contract/${contractAddress.toLowerCase()}/market_chart/range` +
         `?vs_currency=usd&from=${from}&to=${to}`;
 
-      try {
-        const data = await this.fetchWithRetry(url);
-        if (!data) continue;
+      // fetchWithRetry throws on transient failures; those propagate up.
+      const data = await this.fetchWithRetry(url);
+      if (!data) continue;
 
-        const prices = data?.prices as Array<[number, number]> | undefined;
-        if (!prices || prices.length === 0) continue;
+      const prices = data?.prices as Array<[number, number]> | undefined;
+      if (!prices || prices.length === 0) continue;
 
-        // Take the first price point in the range
-        const [, usd] = prices[0]!;
-        if (usd === undefined || usd === null) continue;
+      // Take the first price point in the range
+      const [, usd] = prices[0]!;
+      if (usd === undefined || usd === null) continue;
 
-        return {
-          priceUsd: String(usd),
-          source: this.name,
-        };
-      } catch {
-        continue;
-      }
+      return {
+        priceUsd: String(usd),
+        source: this.name,
+      };
     }
 
     return null;
   }
 
-  // ─── HTTP with exponential backoff ───────────────────────────────────
+  // ─── HTTP with exponential backoff + rate limiting ───────────────────
 
+  /**
+   * Fetch a URL with exponential backoff on 429.
+   *
+   * - Returns `null` only when the response is 200 OK but the payload has
+   *   no useful data (i.e. genuine "no data" from CoinGecko).
+   * - Throws `CoinGeckoTransientError` on:
+   *     • 429 after all retries exhausted
+   *     • Any non-2xx response other than 429
+   *     • Network / connection error after all retries
+   */
   private async fetchWithRetry(
     url: string,
     maxRetries = 3,
@@ -227,6 +311,9 @@ export class CoinGeckoProvider implements PricingProvider {
     let delay = 1000; // start at 1s
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Throttle actual HTTP calls to stay within the rate limit.
+      await this.rateLimiter.throttle();
+
       try {
         const headers: Record<string, string> = {
           Accept: 'application/json',
@@ -244,23 +331,39 @@ export class CoinGeckoProvider implements PricingProvider {
             delay *= 2;
             continue;
           }
-          return null;
+          // All retries exhausted: this is a transient failure, not "no data"
+          throw new CoinGeckoTransientError(
+            `CoinGecko rate limit (429) exhausted after ${maxRetries + 1} attempts`,
+          );
         }
 
-        if (!response.ok) return null;
+        if (!response.ok) {
+          // Non-2xx that isn't 429: treat as transient/unrecoverable
+          throw new CoinGeckoTransientError(
+            `CoinGecko HTTP error ${response.status} for ${url}`,
+          );
+        }
 
+        // 200 OK — payload may or may not contain useful data
         return (await response.json()) as Record<string, unknown>;
-      } catch {
-        // Network error — retry with backoff
+      } catch (err) {
+        // Re-throw our own typed errors immediately — don't retry them.
+        if (err instanceof CoinGeckoTransientError) throw err;
+
+        // Network / connection error — retry with backoff
         if (attempt < maxRetries) {
           await sleep(delay);
           delay *= 2;
           continue;
         }
-        return null;
+        throw new CoinGeckoTransientError(
+          `CoinGecko network error for ${url}`,
+          err,
+        );
       }
     }
 
-    return null;
+    // Unreachable, but satisfy TypeScript
+    throw new CoinGeckoTransientError(`CoinGecko fetch failed for ${url}`);
   }
 }
