@@ -5,6 +5,9 @@
  * `Arbitrary<Date>` (2020–2030 range) generators used across
  * form-8949, schedule-d, txf-export, and format-helpers property tests.
  *
+ * Also provides `arbLedgerHistory` and `arbPureGainHistory` for
+ * engine-level property tests (engine-invariants.test.ts).
+ *
  * All generated values satisfy the invariants expected by the tax
  * formatters: valid dates, positive decimal amounts, and
  * `gainLoss === proceeds - costBasis`.
@@ -14,7 +17,7 @@ import * as fc from 'fast-check';
 import Decimal from 'decimal.js';
 import type { DisposalResult, IncomeSummary, TaxResult } from './types.js';
 import type { NftLot } from './nft-lot-book.js';
-import type { RawEvent } from '@daybook/ledger';
+import type { LedgerEntry, AssetLeg, RawEvent } from '@daybook/ledger';
 
 // ─── Constants ───────────────────────────────────────────────────────────
 
@@ -298,4 +301,231 @@ export const arbNftDisposalResult: fc.Arbitrary<DisposalResult> = fc
       ],
       washSaleFlag,
     };
+  });
+
+// ─── LedgerEntry history arbitraries ────────────────────────────────────
+
+/**
+ * The small asset set used for generated LedgerEntry histories.
+ *
+ * Deliberately tiny so that buys consistently precede sells across the
+ * generated sequence, avoiding "insufficient basis" warnings.
+ */
+const HISTORY_ASSETS = ['BTC', 'ETH', 'SOL'] as const;
+
+/**
+ * Base timestamp for generated histories: 2022-01-01T00:00:00Z.
+ *
+ * Each entry in the history uses `BASE_TS + index * ONE_DAY_MS` so
+ * timestamps are strictly increasing and total-ordered — this sidesteps
+ * the equal-timestamp tie-break issue in computeTax's sort.
+ */
+const BASE_TS = Date.UTC(2022, 0, 1);
+const ONE_DAY_MS = 86_400_000;
+
+/**
+ * Tax year used for generated histories (2023).
+ *
+ * Entries span 2022–2023, so some disposals fall in-year and some
+ * establish prior-year basis — a realistic scenario.
+ */
+export const HISTORY_TAX_YEAR = 2023;
+
+/**
+ * Build a `trade` LedgerEntry representing a buy.
+ *
+ * The entry has:
+ *   - a positive leg for the crypto asset (amount = `qty`, USD at `price * qty`)
+ *   - a negative USD leg (so computeTax sees it as a plain acquisition)
+ *
+ * @internal Used by arbLedgerHistory.
+ */
+function makeBuyEntry(
+  id: string,
+  asset: string,
+  qty: string,
+  priceUsd: string,
+  timestamp: Date,
+): LedgerEntry {
+  const totalUsd = new Decimal(qty).mul(new Decimal(priceUsd)).toFixed(2);
+  const legs: AssetLeg[] = [
+    { asset, amount: qty, amountUsdAtTime: totalUsd },
+    { asset: 'USD', amount: `-${totalUsd}`, amountUsdAtTime: totalUsd },
+  ];
+  return { id, timestamp, type: 'trade', legs, rawEventIds: [id] };
+}
+
+/**
+ * Build a `trade` LedgerEntry representing a sell.
+ *
+ * The entry has:
+ *   - a negative leg for the crypto asset (amount = `-qty`, USD at `price * qty`)
+ *   - a positive USD leg
+ *   - an optional fee leg with `feeFlag: true`
+ *
+ * @internal Used by arbLedgerHistory.
+ */
+function makeSellEntry(
+  id: string,
+  asset: string,
+  qty: string,
+  priceUsd: string,
+  feeUsd: string | null,
+  timestamp: Date,
+): LedgerEntry {
+  const totalUsd = new Decimal(qty).mul(new Decimal(priceUsd)).toFixed(2);
+  const legs: AssetLeg[] = [
+    { asset, amount: `-${qty}`, amountUsdAtTime: totalUsd },
+    { asset: 'USD', amount: totalUsd, amountUsdAtTime: totalUsd },
+  ];
+  if (feeUsd !== null) {
+    legs.push({ asset: 'USD', amount: `-${feeUsd}`, amountUsdAtTime: feeUsd, feeFlag: true });
+  }
+  return { id, timestamp, type: 'trade', legs, rawEventIds: [id] };
+}
+
+/**
+ * Build an `income` LedgerEntry.
+ *
+ * @internal Used by arbLedgerHistory.
+ */
+function makeIncomeEntry(
+  id: string,
+  asset: string,
+  qty: string,
+  priceUsd: string,
+  timestamp: Date,
+): LedgerEntry {
+  const totalUsd = new Decimal(qty).mul(new Decimal(priceUsd)).toFixed(2);
+  const legs: AssetLeg[] = [
+    { asset, amount: qty, amountUsdAtTime: totalUsd },
+  ];
+  return { id, timestamp, type: 'income', legs, rawEventIds: [id] };
+}
+
+/**
+ * Arbitrary that generates a realistic sequence of LedgerEntries.
+ *
+ * ### Design invariants
+ * - Strictly increasing timestamps (BASE_TS + index * ONE_DAY_MS).
+ * - Per-asset pool is always funded before sells: buys precede sells for
+ *   each asset, so "insufficient basis" warnings do not occur.
+ * - Amounts are integers-in-cents (1–10 000 hundredths → 0.01–100.00)
+ *   to keep Decimal arithmetic exact across the history.
+ * - Prices are integers-in-cents (1–100 000 hundredths → 0.01–1 000.00
+ *   USD per unit) — cheap enough to stay representable, varied enough
+ *   to exercise FIFO vs HIFO ordering.
+ * - Fees are optional (null = no fee leg). When present, fee is in
+ *   [0.01, 5.00] USD.
+ * - Tax year is HISTORY_TAX_YEAR (2023); entries span 2022–2023.
+ * - At most 30 entries to keep shrinking fast.
+ *
+ * Exported so engine-invariants.test.ts can use it directly.
+ */
+export const arbLedgerHistory: fc.Arbitrary<LedgerEntry[]> = fc
+  .array(
+    fc.record({
+      assetIndex: fc.integer({ min: 0, max: HISTORY_ASSETS.length - 1 }),
+      qtyHundredths: fc.integer({ min: 1, max: 10_000 }),
+      priceHundredths: fc.integer({ min: 1, max: 100_000 }),
+      feeHundredths: fc.option(fc.integer({ min: 1, max: 500 }), { nil: null }),
+      opType: fc.constantFrom('buy', 'sell', 'income' as const),
+    }),
+    { minLength: 2, maxLength: 30 },
+  )
+  .map((ops) => {
+    // Per-asset running pool (in hundredths) — ensures sells never exceed available balance.
+    const pools: Record<string, number> = { BTC: 0, ETH: 0, SOL: 0 };
+    const entries: LedgerEntry[] = [];
+    let entryIndex = 0;
+
+    for (const op of ops) {
+      const asset = HISTORY_ASSETS[op.assetIndex]!;
+      const qty = new Decimal(op.qtyHundredths).div(100).toFixed(2);
+      const price = new Decimal(op.priceHundredths).div(100).toFixed(2);
+      const fee = op.feeHundredths !== null
+        ? new Decimal(op.feeHundredths).div(100).toFixed(2)
+        : null;
+      const timestamp = new Date(BASE_TS + entryIndex * ONE_DAY_MS);
+      const id = `gen-${entryIndex}-${op.opType}-${asset}`;
+
+      if (op.opType === 'buy' || op.opType === 'income') {
+        pools[asset]! += op.qtyHundredths;
+        if (op.opType === 'buy') {
+          entries.push(makeBuyEntry(id, asset, qty, price, timestamp));
+        } else {
+          entries.push(makeIncomeEntry(id, asset, qty, price, timestamp));
+        }
+        entryIndex++;
+      } else {
+        // sell — only if there's enough in the pool
+        const available = pools[asset]!;
+        if (available < op.qtyHundredths) {
+          // Skip the sell if it would overdraw the pool
+          continue;
+        }
+        pools[asset]! -= op.qtyHundredths;
+        entries.push(makeSellEntry(id, asset, qty, price, fee, timestamp));
+        entryIndex++;
+      }
+    }
+
+    return entries;
+  })
+  // Require at least one buy (so the history is non-trivially funded)
+  .filter((entries) => entries.some((e) => e.type === 'trade' && e.legs.some((l) => new Decimal(l.amount).isPositive() && l.asset !== 'USD')));
+
+/**
+ * Arbitrary that generates a pure-gain LedgerEntry history.
+ *
+ * Every buy is at a monotonically lower price than every subsequent sell,
+ * guaranteeing all disposals produce a positive gain. This is required
+ * for the method-ordering invariant (HIFO total gain <= FIFO total gain)
+ * to be meaningful.
+ *
+ * ### Design
+ * - All buys happen in 2022 at price `buyPriceHundredths` (low price).
+ * - All sells happen in 2023 at price `sellPriceHundredths` (high price).
+ * - `sellPriceHundredths > buyPriceHundredths` is guaranteed by construction.
+ * - Uses a single asset (ETH) for simplicity.
+ * - At most 20 buy/sell pairs.
+ */
+export const arbPureGainHistory: fc.Arbitrary<LedgerEntry[]> = fc
+  .record({
+    buyPriceHundredths: fc.integer({ min: 1, max: 50_000 }),
+    // sell price is strictly higher than buy price
+    sellPremiumHundredths: fc.integer({ min: 1, max: 50_000 }),
+    lots: fc.array(
+      fc.record({
+        qtyHundredths: fc.integer({ min: 1, max: 10_000 }),
+      }),
+      { minLength: 1, maxLength: 20 },
+    ),
+  })
+  .map(({ buyPriceHundredths, sellPremiumHundredths, lots }) => {
+    const buyPriceHundredthsAdj = buyPriceHundredths;
+    const sellPriceHundredths = buyPriceHundredthsAdj + sellPremiumHundredths;
+    const buyPrice = new Decimal(buyPriceHundredthsAdj).div(100).toFixed(2);
+    const sellPrice = new Decimal(sellPriceHundredths).div(100).toFixed(2);
+
+    const entries: LedgerEntry[] = [];
+    let idx = 0;
+
+    for (const lot of lots) {
+      const qty = new Decimal(lot.qtyHundredths).div(100).toFixed(2);
+      // Buy in 2022 (before the tax year)
+      const buyTs = new Date(BASE_TS + idx * ONE_DAY_MS);
+      entries.push(makeBuyEntry(`pure-buy-${idx}`, 'ETH', qty, buyPrice, buyTs));
+      idx++;
+    }
+
+    for (const lot of lots) {
+      const qty = new Decimal(lot.qtyHundredths).div(100).toFixed(2);
+      // Sell in 2023 (within the tax year) — strictly after all buys
+      const sellTs = new Date(Date.UTC(2023, 0, 1) + idx * ONE_DAY_MS);
+      entries.push(makeSellEntry(`pure-sell-${idx}`, 'ETH', qty, sellPrice, null, sellTs));
+      idx++;
+    }
+
+    return entries;
   });
