@@ -98,7 +98,7 @@ describe('SolanaRpcProvider', () => {
   });
 
   it('fetches signatures and transactions, emits SOL delta + fee leg', async () => {
-    const { SolanaRpcProvider } = await import('./providers/rpc.js');
+    const { SolanaRpcProvider } = await import('./rpc.js');
 
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -156,7 +156,7 @@ describe('SolanaRpcProvider', () => {
   });
 
   it('skips failed transactions (meta.err !== null)', async () => {
-    const { SolanaRpcProvider } = await import('./providers/rpc.js');
+    const { SolanaRpcProvider } = await import('./rpc.js');
 
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -211,7 +211,7 @@ describe('SolanaRpcProvider', () => {
   });
 
   it('emits SPL token delta when owner token balance changes', async () => {
-    const { SolanaRpcProvider } = await import('./providers/rpc.js');
+    const { SolanaRpcProvider } = await import('./rpc.js');
 
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -283,7 +283,7 @@ describe('SolanaRpcProvider', () => {
   });
 
   it('passes `until` parameter to stop at already-seen signature', async () => {
-    const { SolanaRpcProvider } = await import('./providers/rpc.js');
+    const { SolanaRpcProvider } = await import('./rpc.js');
 
     const capturedBodies: unknown[] = [];
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
@@ -310,7 +310,7 @@ describe('SolanaRpcProvider', () => {
   });
 
   it('retries on HTTP 429 with backoff', async () => {
-    const { SolanaRpcProvider } = await import('./providers/rpc.js');
+    const { SolanaRpcProvider } = await import('./rpc.js');
 
     const sleepCalls: number[] = [];
     const fetchMock = vi.fn()
@@ -336,7 +336,7 @@ describe('SolanaRpcProvider', () => {
   });
 
   it('does not emit a fee leg when owner is not the fee payer', async () => {
-    const { SolanaRpcProvider } = await import('./providers/rpc.js');
+    const { SolanaRpcProvider } = await import('./rpc.js');
 
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
