@@ -31,6 +31,24 @@ export interface BridgeEntry {
   version: string;
 }
 
+/**
+ * One entry in the DeFi contract catalog.
+ *
+ * `kind` drives the classification rule:
+ *   - `staking`             — native-asset deposits/withdrawals are transfer_self;
+ *                             token inflows (reward tokens) are income.
+ *   - `reward-distributor`  — all crypto_in events are income.
+ *   - `lp-router`           — reserved for future LP rules; falls through for now.
+ *   - `lending-pool`        — reserved for future lending rules; falls through for now.
+ */
+export interface DeFiContractEntry {
+  chain: number;
+  address: string;
+  protocol: string;
+  version: string;
+  kind: 'lp-router' | 'lending-pool' | 'staking' | 'reward-distributor';
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Classifier context — everything rules need besides the events themselves
 // ─────────────────────────────────────────────────────────────────────────
@@ -44,6 +62,8 @@ export interface ClassifierContext {
   dexRouters: Map<string, DexRouterEntry>;
   /** Bridge contract addresses — key is `${chainId}:${lowercasedAddress}`. */
   bridges: Map<string, BridgeEntry>;
+  /** DeFi contract addresses — key is `${chainId}:${lowercasedAddress}`. */
+  defiContracts: Map<string, DeFiContractEntry>;
   /**
    * Maximum time difference in seconds for Rule 03 cross-source matching.
    * Default: 1800 (30 minutes). Increase for slower chains or exchanges with

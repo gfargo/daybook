@@ -25,6 +25,7 @@ function makeContext(overrides: Partial<ClassifierContext> = {}): ClassifierCont
     accountIds: [],
     dexRouters: new Map(),
     bridges: new Map(),
+    defiContracts: new Map(),
     ...overrides,
   };
 }

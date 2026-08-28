@@ -118,6 +118,7 @@ describe('end-to-end pipeline: RawEvents → classify → tax → CSV', () => {
       accountIds: ['test-coinbase'],
       dexRouters: new Map(),
       bridges: new Map(),
+      defiContracts: new Map(),
     };
 
     const classifyResult = classify(allEvents, overrides, context, DEFAULT_RULES);
@@ -233,6 +234,7 @@ describe('end-to-end pipeline: RawEvents → classify → tax → CSV', () => {
       accountIds: ['test-coinbase'],
       dexRouters: new Map(),
       bridges: new Map(),
+      defiContracts: new Map(),
     };
 
     // First classification

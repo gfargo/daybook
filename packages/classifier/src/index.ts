@@ -11,7 +11,8 @@
  *   5. Bridge detection        — match outbound bridge tx to destination-chain receive
  *   6. Approval gas accounting — produce fee_disposal events for approve() calls
  *   7. NFT classification      — detect NFT acquisition/disposal patterns by txHash
- *   8. Default passthrough     — direct mapping for everything else
+ *   8. DeFi classification     — staking/reward-distributor contract income + transfer_self
+ *   9. Default passthrough     — direct mapping for everything else
  */
 
 export { classify, entryId, findPrunableOverrides, validateOverrides } from './runner.js';
@@ -22,6 +23,7 @@ export type {
   ClassifyResult,
   DexRouterEntry,
   BridgeEntry,
+  DeFiContractEntry,
 } from './types.js';
 
 // ─── Individual rules (for custom pipelines or testing) ──────────────────
@@ -32,6 +34,7 @@ export { dexSwapCollapse } from './rules/04-dex-swap-collapse.js';
 export { bridgeDetection } from './rules/05-bridge-detection.js';
 export { approvalGas } from './rules/06-approval-gas.js';
 export { nftClassification } from './rules/08-nft-classification.js';
+export { defiClassification } from './rules/09-defi-classification.js';
 export { defaultPassthrough } from './rules/07-default.js';
 
 // ─── Convenience: the default rule chain ─────────────────────────────────
@@ -42,10 +45,11 @@ import { dexSwapCollapse } from './rules/04-dex-swap-collapse.js';
 import { bridgeDetection } from './rules/05-bridge-detection.js';
 import { approvalGas } from './rules/06-approval-gas.js';
 import { nftClassification } from './rules/08-nft-classification.js';
+import { defiClassification } from './rules/09-defi-classification.js';
 import { defaultPassthrough } from './rules/07-default.js';
 import type { ClassifierRule } from './types.js';
 
-/** The default 8-rule chain in execution order. */
+/** The default 9-rule chain in execution order. */
 export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   cbPairMerger,
   cbSelfTransfer,
@@ -54,13 +58,15 @@ export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   bridgeDetection,
   approvalGas,
   nftClassification,
+  defiClassification,
   defaultPassthrough,
 ];
 
 // ─── Catalog loaders ─────────────────────────────────────────────────────
-import type { DexRouterEntry, BridgeEntry } from './types.js';
+import type { DexRouterEntry, BridgeEntry, DeFiContractEntry } from './types.js';
 import dexRoutersData from './dex-routers.json' with { type: 'json' };
 import bridgesData from './bridges.json' with { type: 'json' };
+import defiContractsData from './defi-contracts.json' with { type: 'json' };
 
 /**
  * Build a `${chainId}:${lowercasedAddress}`-keyed catalog Map from an array
@@ -71,7 +77,7 @@ import bridgesData from './bridges.json' with { type: 'json' };
  */
 export function buildCatalog<
   T extends { chain: number; address: string; protocol: string; version: string },
->(rows: readonly T[], kind: 'DEX router' | 'bridge'): Map<string, T> {
+>(rows: readonly T[], kind: 'DEX router' | 'bridge' | 'DeFi contract'): Map<string, T> {
   const map = new Map<string, T>();
   for (const entry of rows) {
     const key = `${entry.chain}:${entry.address.toLowerCase()}`;
@@ -97,4 +103,11 @@ export function loadBridges(
   data: readonly BridgeEntry[] = bridgesData as BridgeEntry[],
 ): Map<string, BridgeEntry> {
   return buildCatalog(data, 'bridge');
+}
+
+/** Load the DeFi contract catalog as a Map keyed by `${chainId}:${lowercasedAddress}`. */
+export function loadDeFiContracts(
+  data: readonly DeFiContractEntry[] = defiContractsData as DeFiContractEntry[],
+): Map<string, DeFiContractEntry> {
+  return buildCatalog(data, 'DeFi contract');
 }

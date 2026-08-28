@@ -21,6 +21,7 @@ import {
     DEFAULT_RULES,
     loadBridges,
     loadDexRouters,
+    loadDeFiContracts,
     type ClassifierContext,
 } from '@daybook/classifier';
 import {
@@ -72,12 +73,14 @@ export async function classifyCommand(opts: ClassifyOptions): Promise<void> {
     const accountIds = config.accounts.map(a => a.id);
     const dexRouters = loadDexRouters();
     const bridges = loadBridges();
+    const defiContracts = loadDeFiContracts();
 
     const context: ClassifierContext = {
       ownAddresses,
       accountIds,
       dexRouters,
       bridges,
+      defiContracts,
       crossSourceMatchWindowSeconds: config.classifier.crossSourceMatchWindowSeconds,
       crossSourceAmountTolerance: config.classifier.crossSourceAmountTolerance,
     };
