@@ -11,6 +11,7 @@ import Decimal from 'decimal.js';
 import type { LedgerEntry } from '@daybook/ledger';
 import {
   CoinGeckoProvider,
+  COINGECKO_PLATFORM_BY_SOURCE,
   ManualOverrideProvider,
   PriceCache,
   PricingChain,
@@ -48,18 +49,34 @@ export function buildPricingChain(db: DbWithRaw, config: Config): PricingChain {
  * Hydrate every leg's `amountUsdAtTime` (when unset) using the given
  * pricing chain. Mutates the entries in place — caller passes the
  * combined prior + current-year set so lot history is fully priced.
+ *
+ * Resolves each leg's `accountId` to its configured chain (`config.accounts`)
+ * and forwards the matching CoinGecko platform so contract-address lookups
+ * hit the right chain instead of defaulting to Ethereum.
  */
 export async function hydratePrices(
   entries: LedgerEntry[],
   pricingChain: PricingChain,
+  config: Config,
 ): Promise<void> {
+  const platformByAccountId = new Map(
+    config.accounts.map(account => [
+      account.id,
+      COINGECKO_PLATFORM_BY_SOURCE[account.source],
+    ]),
+  );
+
   for (const entry of entries) {
     for (const leg of entry.legs) {
       if (leg.amountUsdAtTime || leg.amountUsdReportedBySource) continue;
+      const platform = leg.accountId
+        ? platformByAccountId.get(leg.accountId)
+        : undefined;
       const result = await pricingChain.priceAt(
         leg.asset,
         entry.timestamp,
         leg.contractAddress,
+        platform,
       );
       if (result) {
         const absAmount = new Decimal(leg.amount).abs();
