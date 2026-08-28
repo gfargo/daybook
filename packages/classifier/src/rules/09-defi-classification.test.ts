@@ -15,7 +15,7 @@ import type { ClassifierContext, DeFiContractEntry } from '../types.js';
 /** Known Lido stETH staking contract on Ethereum mainnet (chain 1). */
 const LIDO_STETH = '0xae7ab96520de3a18e5e111b5eaab095312d7fe84';
 /** Known Lido Execution Layer Rewards Vault (reward-distributor) on chain 1. */
-const LIDO_REWARDS = '0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae';
+const LIDO_REWARDS = '0x388c818ca8b9251b393131c08a736a67ccb19297';
 /** A random address that is NOT in the catalog. */
 const UNKNOWN_ADDR = '0x1234567890abcdef1234567890abcdef12345678';
 

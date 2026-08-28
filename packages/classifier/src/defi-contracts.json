@@ -1,8 +1,7 @@
 [
   { "chain": 1, "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84", "protocol": "Lido", "version": "stETH", "kind": "staking" },
   { "chain": 1, "address": "0xdd9bc35ae942ef0cfa76930954a156b3ff30a4e1", "protocol": "Lido", "version": "Staking Router", "kind": "staking" },
-  { "chain": 1, "address": "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae", "protocol": "Lido", "version": "Execution Layer Rewards Vault", "kind": "reward-distributor" },
-  { "chain": 1, "address": "0x388c818ca8b9251b393131c08a736a67ccb19297", "protocol": "Lido", "version": "Withdrawal Queue (stETH)", "kind": "staking" },
+  { "chain": 1, "address": "0x388c818ca8b9251b393131c08a736a67ccb19297", "protocol": "Lido", "version": "Execution Layer Rewards Vault", "kind": "reward-distributor" },
   { "chain": 1, "address": "0xae78736cd615f374d3085123a210448e74fc6393", "protocol": "RocketPool", "version": "rETH Token", "kind": "staking" },
   { "chain": 1, "address": "0xdd3f50f8a6cafbe9b31a427582963f465e745af8", "protocol": "RocketPool", "version": "Deposit Pool", "kind": "staking" },
   { "chain": 1, "address": "0xa3a7b6f88361f48403514059f1f16c8e78d60eec", "protocol": "RocketPool", "version": "RPL Rewards Distributor", "kind": "reward-distributor" },
