@@ -146,23 +146,11 @@ describe('PricingChain', () => {
     cache.set('ETH', day, 'low-priority', '9999.00');
     cache.set('ETH', day, 'coingecko', '2300.00');
 
+    // coingecko is listed first, so it's the higher-priority provider — the
+    // cache lookup should prefer its cached value over 'low-priority'.
     const chain = new PricingChain(
       {
         providers: [
-          nullProvider('low-priority'),
-          mockProvider('coingecko', { ETH: '2310.00' }),
-        ],
-      },
-      cache,
-    );
-
-    // The chain lists providers in priority order: low-priority first, coingecko second.
-    // The cache should pick coingecko because the chain passes its ordered preference list.
-    // Wait — in this chain low-priority is first so it's HIGHER priority.
-    // Let's set up a scenario where coingecko is higher priority.
-    const chain2 = new PricingChain(
-      {
-        providers: [
           mockProvider('coingecko', { ETH: '2310.00' }),
           nullProvider('low-priority'),
         ],
@@ -170,7 +158,7 @@ describe('PricingChain', () => {
       cache,
     );
 
-    const result = await chain2.priceAt('ETH', JAN_15);
+    const result = await chain.priceAt('ETH', JAN_15);
     expect(result).not.toBeNull();
     // coingecko is highest priority in chain2 — it should win from cache
     expect(result!.source).toBe('coingecko');

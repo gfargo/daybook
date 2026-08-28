@@ -71,7 +71,16 @@ const TICKER_TO_COINGECKO_ID: Record<string, string> = {
  * All six EVM chains supported by daybook v0.4.0+ are covered.
  * Slugs verified against the CoinGecko /asset_platforms list.
  */
-export const COINGECKO_PLATFORM_BY_SOURCE: Partial<Record<SourceId, string>> = {
+/** Valid CoinGecko `/asset_platforms` slugs for the EVM chains daybook supports. */
+export type CoinGeckoPlatform =
+  | 'ethereum'
+  | 'polygon-pos'
+  | 'arbitrum-one'
+  | 'optimistic-ethereum'
+  | 'base'
+  | 'binance-smart-chain';
+
+export const COINGECKO_PLATFORM_BY_SOURCE: Partial<Record<SourceId, CoinGeckoPlatform>> = {
   eth: 'ethereum',
   polygon: 'polygon-pos',
   arbitrum: 'arbitrum-one',
@@ -111,7 +120,7 @@ export interface CoinGeckoProviderOptions {
   /** Optional API key for the pro tier. */
   apiKey?: string;
   /** CoinGecko platform for contract lookups (default: 'ethereum'). */
-  platform?: string;
+  platform?: CoinGeckoPlatform;
 }
 
 /**
@@ -124,7 +133,7 @@ export class CoinGeckoProvider implements PricingProvider {
   readonly name = 'coingecko';
 
   private readonly apiKey: string | undefined;
-  private readonly platform: string;
+  private readonly platform: CoinGeckoPlatform;
 
   constructor(options: CoinGeckoProviderOptions = {}) {
     this.apiKey = options.apiKey;
