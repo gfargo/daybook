@@ -40,6 +40,19 @@ export interface EvmSyncResult extends SyncResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Solana sync result
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface SolanaSyncResult extends SyncResult {
+  stats: {
+    native: number;
+    spl: number;
+    fee: number;
+    deduped: number;
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // CSV sync output (Coinbase / Kraken)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -161,4 +174,52 @@ export function renderCsvSyncOutput(result: SyncResult): void {
 /** Render EVM sync results. */
 export function renderEvmSyncOutput(result: EvmSyncResult): void {
   render(<EvmSyncOutput result={result} />);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Solana sync output
+// ─────────────────────────────────────────────────────────────────────────
+
+function SolanaSyncOutput({ result }: { result: SolanaSyncResult }): React.ReactElement {
+  return (
+    <Box flexDirection="column" paddingLeft={1} paddingTop={1} paddingBottom={1}>
+      <Header>Solana sync ({result.accountId})</Header>
+
+      <Section title="Transfer categories">
+        <Row label="Native SOL" value={result.stats.native} labelWidth={18} />
+        <Row label="SPL tokens" value={result.stats.spl} labelWidth={18} />
+        <Row label="Fee legs" value={result.stats.fee} labelWidth={18} />
+        {result.stats.deduped > 0 && (
+          <Row label="Deduped" value={result.stats.deduped} note="(duplicate transfers skipped)" labelWidth={18} />
+        )}
+      </Section>
+
+      <Box marginTop={1}>
+        <Row label="Total" value={result.eventCount} labelWidth={18} />
+        <Box marginLeft={2}>
+          <Row label="Inserted" value={result.inserted} labelWidth={12} />
+        </Box>
+        <Box marginLeft={2}>
+          <Row label="Skipped" value={result.skipped} labelWidth={12} />
+        </Box>
+      </Box>
+
+      {result.dbCounts && result.dbCounts.length > 0 && (
+        <Section title={`Events in DB for ${result.accountId}`}>
+          {result.dbCounts.map(c => (
+            <Row key={c.type} label={c.type} value={c.count} labelWidth={22} />
+          ))}
+        </Section>
+      )}
+
+      <Box marginTop={1}>
+        <Text>{color.gain(`${glyph('check')}  Sync complete`)}</Text>
+      </Box>
+    </Box>
+  );
+}
+
+/** Render Solana sync results. */
+export function renderSolanaSyncOutput(result: SolanaSyncResult): void {
+  render(<SolanaSyncOutput result={result} />);
 }

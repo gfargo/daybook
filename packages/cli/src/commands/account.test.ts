@@ -21,14 +21,15 @@ describe('resolveAccountSource', () => {
     expect(resolveAccountSource('base')).toBe('base');
     expect(resolveAccountSource('optimism')).toBe('optimism');
     expect(resolveAccountSource('bnb')).toBe('bnb');
+    expect(resolveAccountSource('solana')).toBe('solana');
   });
 
   it('rejects future sources that the sync command cannot handle yet', () => {
     expect(() => resolveAccountSource('coinbase-advanced')).toThrow(
       'Unsupported account source',
     );
-    expect(() => resolveAccountSource('solana')).toThrow(
-      'Supported sources: coinbase, kraken, crypto-com, csv, binance, binance-us, bitget, bybit, gateio, gemini, mexc, okx, robinhood, eth, polygon, arbitrum, base, optimism, bnb',
+    expect(() => resolveAccountSource('bitcoin')).toThrow(
+      'Unsupported account source',
     );
   });
 });

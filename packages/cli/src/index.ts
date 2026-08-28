@@ -26,7 +26,7 @@ import {
 } from './commands/overrides.js';
 
 const program = new Command();
-const SOURCE_HELP = 'source type: coinbase, kraken, crypto-com, csv, binance, binance-us, bitget, bybit, gateio, gemini, mexc, okx, robinhood, eth, polygon, arbitrum, base, optimism, bnb';
+const SOURCE_HELP = 'source type: coinbase, kraken, crypto-com, csv, binance, binance-us, bitget, bybit, gateio, gemini, mexc, okx, robinhood, eth, polygon, arbitrum, base, optimism, bnb, solana';
 
 program
   .name('daybook')
@@ -72,7 +72,8 @@ Examples:
   daybook account add main-bitget --source bitget --identifier you@example.com
   daybook account add csv-imports --source csv --identifier manual-ledger
   daybook account add base-main --source base --identifier 0xYourAddress --label "Main Base"
-  daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"`)
+  daybook account add eth-main --source eth --identifier 0xYourAddress --label "Main ETH"
+  daybook account add sol-main --source solana --identifier YourSolanaAddress --label "Main Solana"`)
   .action(accountAddCommand);
 
 account
@@ -114,7 +115,9 @@ Examples:
   daybook sync --source base
   daybook sync --source coinbase --from 2024-01-01
   daybook sync --source eth --from 2024-01-01
-  daybook sync --source eth --include-failed-gas`)
+  daybook sync --source eth --include-failed-gas
+  daybook sync --source solana
+  daybook sync --source solana --from 2024-01-01`)
   .action(syncCommand);
 
 // ─── daybook events ──────────────────────────────────────────────────────

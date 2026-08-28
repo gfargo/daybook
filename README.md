@@ -141,6 +141,12 @@ daybook account add base-main \
   --source base \
   --identifier 0xYourAddress \
   --label "Main Base"
+
+# Add your Solana wallet
+daybook account add sol-main \
+  --source solana \
+  --identifier YourSolanaAddress \
+  --label "Main Solana"
 ```
 
 ### 2. Sync data
@@ -189,6 +195,10 @@ daybook sync --source eth --from 19000000
 # Include gas from failed transactions on supported Etherscan-compatible sources
 # (requires ETHERSCAN_API_KEY env var)
 daybook sync --source eth --include-failed-gas
+
+# Sync Solana wallet (uses public RPC by default; set SOLANA_RPC_URL for Helius/QuickNode)
+daybook sync --source solana
+daybook sync --source solana --from 2024-01-01
 ```
 
 ### 3. Classify and export
@@ -418,6 +428,55 @@ Pair symbols are not present in the Billing Details CSV — daybook infers base 
 - **Withdrawals** with `Coin, Amount, Network, To Address, TXID, Time, Status, Fee`. Only `success` rows; the `Fee` is added as a fee leg in the same asset.
 
 Spot symbols like `BTCUSDT` (or legacy `BTCUSDT_SPBL`) are normalized by stripping any suffix from `_` onward and peeling a known quote ticker (USDT, USDC, BUSD, BTC, ETH, fiats) off the end. Timestamps may be `yyyy-MM-dd HH:mm:ss` UTC (UI export) or 13-digit Unix ms (API export); both forms are accepted.
+
+### Solana wallet sync
+
+`--source solana` fetches native SOL and SPL-token transfer history via the Solana JSON-RPC API. No file export required — it queries the chain directly.
+
+**Provider / RPC endpoint:**
+
+By default, daybook uses the public `https://api.mainnet-beta.solana.com` endpoint. For wallets with long history or production use, set a Helius or QuickNode endpoint:
+
+```bash
+export SOLANA_RPC_URL="https://mainnet.helius-rpc.com/?api-key=<your-key>"
+daybook sync --source solana
+```
+
+Or configure it persistently in `~/.daybook/config.json`:
+
+```json
+{
+  "providers": {
+    "solana": {
+      "endpoint": "https://mainnet.helius-rpc.com/?api-key=<your-key>"
+    }
+  }
+}
+```
+
+**Balance-delta approach:**
+
+daybook uses `meta.preBalances`/`meta.postBalances` for native SOL and `meta.preTokenBalances`/`meta.postTokenBalances` for SPL tokens. This approach captures movements surfaced via inner instructions (DeFi programs like Raydium, Orca) without needing to parse instruction trees. Each non-zero net asset delta for the wallet address becomes a `crypto_in` or `crypto_out` event.
+
+**Fee attribution:**
+
+The transaction fee (`meta.fee`, in lamports) is only emitted as a separate fee leg when the wallet is the fee payer (signer at account index 0). This prevents double-counting the fee against the SOL balance delta.
+
+**Versioned transactions:**
+
+daybook fetches transactions with `maxSupportedTransactionVersion: 0` to support v0 versioned transactions.
+
+**SPL token asset naming:**
+
+Unknown SPL tokens (no well-known symbol) are identified by their mint address in the `asset` field. The CoinGecko pricing layer can resolve common mints; unknown mints fall back to manual `daybook overrides set`.
+
+**Incremental sync:**
+
+After the first sync, daybook stores the newest transaction signature as a cursor. Subsequent runs only fetch transactions newer than that cursor. Use `--from` to reset the cursor and re-fetch all available history from the RPC.
+
+**Deferred features** (not in this release):
+- NFT (Metaplex) classification — adapter emits `crypto_in`/`crypto_out`; a future classifier rule will upgrade these
+- DeFi/staking-specific intent (Raydium, Orca, Marinade) — the classifier's existing trade-detection rules apply
 
 ## CLI Commands
 
