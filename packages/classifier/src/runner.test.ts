@@ -22,6 +22,7 @@ function makeContext(overrides: Partial<ClassifierContext> = {}): ClassifierCont
     accountIds: [],
     dexRouters: new Map(),
     bridges: new Map(),
+    defiContracts: new Map(),
     ...overrides,
   };
 }
@@ -1103,10 +1104,13 @@ describe('approval gas', () => {
 describe('NFT rule ordering', () => {
   it('NFT rule runs at position 08 in DEFAULT_RULES, before default passthrough', () => {
     const nftRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '08-nft-classification');
+    const defiRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '09-defi-classification');
     const defaultRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '07-default');
 
     expect(nftRuleIndex).toBe(6); // 0-indexed position 6 = 7th rule
-    expect(defaultRuleIndex).toBe(7); // 0-indexed position 7 = 8th rule
-    expect(nftRuleIndex).toBeLessThan(defaultRuleIndex);
+    expect(defiRuleIndex).toBe(7); // 0-indexed position 7 = 8th rule
+    expect(defaultRuleIndex).toBe(8); // 0-indexed position 8 = 9th rule
+    expect(nftRuleIndex).toBeLessThan(defiRuleIndex);
+    expect(defiRuleIndex).toBeLessThan(defaultRuleIndex);
   });
 });

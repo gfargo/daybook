@@ -18,6 +18,7 @@ function makeContext(): ClassifierContext {
     accountIds: [],
     dexRouters: new Map(),
     bridges: new Map(),
+    defiContracts: new Map(),
   };
 }
 
@@ -564,6 +565,7 @@ describe('Feature: nft-cost-basis, Property 1: NFT classification correctness', 
             accountIds: [],
             dexRouters: new Map(),
             bridges: new Map(),
+            defiContracts: new Map(),
           };
 
           const result = nftClassification.apply(events, ctx);
@@ -671,6 +673,7 @@ describe('Feature: nft-cost-basis, Property 2: NFT metadata preservation', () =>
             accountIds: [],
             dexRouters: new Map(),
             bridges: new Map(),
+            defiContracts: new Map(),
           };
 
           const result = nftClassification.apply(events, ctx);
@@ -780,6 +783,7 @@ describe('Feature: nft-cost-basis, Property 10: NFT-for-NFT trade produces both 
             accountIds: [],
             dexRouters: new Map(),
             bridges: new Map(),
+            defiContracts: new Map(),
           };
 
           const result = nftClassification.apply([nftOutEvent, nftInEvent], ctx);

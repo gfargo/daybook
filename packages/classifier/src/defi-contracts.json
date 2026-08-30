@@ -1,0 +1,19 @@
+[
+  { "chain": 1, "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84", "protocol": "Lido", "version": "stETH", "kind": "staking" },
+  { "chain": 1, "address": "0xdd9bc35ae942ef0cfa76930954a156b3ff30a4e1", "protocol": "Lido", "version": "Staking Router", "kind": "staking" },
+  { "chain": 1, "address": "0x388c818ca8b9251b393131c08a736a67ccb19297", "protocol": "Lido", "version": "Execution Layer Rewards Vault", "kind": "reward-distributor" },
+  { "chain": 1, "address": "0xae78736cd615f374d3085123a210448e74fc6393", "protocol": "RocketPool", "version": "rETH Token", "kind": "staking" },
+  { "chain": 1, "address": "0xdd3f50f8a6cafbe9b31a427582963f465e745af8", "protocol": "RocketPool", "version": "Deposit Pool", "kind": "staking" },
+  { "chain": 1, "address": "0xa3a7b6f88361f48403514059f1f16c8e78d60eec", "protocol": "RocketPool", "version": "RPL Rewards Distributor", "kind": "reward-distributor" },
+  { "chain": 1, "address": "0xbf5495efe5db9ce00f80364c8b423567e58d2110", "protocol": "Frax Finance", "version": "frxETH Minter (staking)", "kind": "staking" },
+  { "chain": 1, "address": "0xac3e018457b222d93114458476f3e3416abbe38f", "protocol": "Frax Finance", "version": "sfrxETH (staking vault)", "kind": "staking" },
+  { "chain": 1, "address": "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f", "protocol": "SushiSwap", "version": "MasterChef V2 (reward distributor)", "kind": "reward-distributor" },
+  { "chain": 1, "address": "0xef0881ec094552b2e128cf945ef17a6752b4ec5d", "protocol": "SushiSwap", "version": "MasterChef V2 (staking)", "kind": "staking" },
+  { "chain": 1, "address": "0xc36442b4a4522e871399cd717abdd847ab11fe88", "protocol": "Uniswap", "version": "V3 NonfungiblePositionManager (LP)", "kind": "lp-router" },
+  { "chain": 1, "address": "0xe2923b9b0d08bc26166a6098c41f97eca90ac6a9", "protocol": "Uniswap", "version": "V3 Staker (reward distributor)", "kind": "reward-distributor" },
+  { "chain": 1, "address": "0xd3cf979e676265e4f6379749dece4708b9a22ed9", "protocol": "Yearn Finance", "version": "yETH Staking Rewards", "kind": "reward-distributor" },
+  { "chain": 1, "address": "0xba100000625a3754423978a60c9317c58a424e3d", "protocol": "Balancer", "version": "BAL Token (rewards)", "kind": "reward-distributor" },
+  { "chain": 137, "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84", "protocol": "Lido", "version": "stETH (Polygon)", "kind": "staking" },
+  { "chain": 137, "address": "0x3a58a54c066fdc0f2d55fc9c89f0415c92ebf3c4", "protocol": "Lido", "version": "stMATIC", "kind": "staking" },
+  { "chain": 8453, "address": "0xc1cba3fcea344f92d9239c08c0568f6f2f0ee452", "protocol": "Coinbase", "version": "cbETH (staking)", "kind": "staking" }
+]
