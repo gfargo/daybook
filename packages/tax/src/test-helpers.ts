@@ -503,9 +503,8 @@ export const arbPureGainHistory: fc.Arbitrary<LedgerEntry[]> = fc
     ),
   })
   .map(({ buyPriceHundredths, sellPremiumHundredths, lots }) => {
-    const buyPriceHundredthsAdj = buyPriceHundredths;
-    const sellPriceHundredths = buyPriceHundredthsAdj + sellPremiumHundredths;
-    const buyPrice = new Decimal(buyPriceHundredthsAdj).div(100).toFixed(2);
+    const sellPriceHundredths = buyPriceHundredths + sellPremiumHundredths;
+    const buyPrice = new Decimal(buyPriceHundredths).div(100).toFixed(2);
     const sellPrice = new Decimal(sellPriceHundredths).div(100).toFixed(2);
 
     const entries: LedgerEntry[] = [];
