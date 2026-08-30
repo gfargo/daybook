@@ -12,6 +12,7 @@
  */
 
 import type { PriceResult, PricingProvider } from '../provider.js';
+import type { SourceId } from '@daybook/ledger';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Ticker → CoinGecko ID mapping
@@ -61,12 +62,31 @@ const TICKER_TO_COINGECKO_ID: Record<string, string> = {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Map of chain identifiers to CoinGecko platform IDs.
- * Used for ERC-20 contract address price lookups.
+ * Map from daybook EVM SourceId to the corresponding CoinGecko platform ID.
+ *
+ * Used by callers (e.g. hydratePrices) to resolve a leg's chain context
+ * into the correct platform for contract-address lookups, so that a
+ * Polygon token address is queried against polygon-pos rather than ethereum.
+ *
+ * All six EVM chains supported by daybook v0.4.0+ are covered.
+ * Slugs verified against the CoinGecko /asset_platforms list.
  */
-const PLATFORM_IDS: Record<string, string> = {
-  ethereum: 'ethereum',
+/** Valid CoinGecko `/asset_platforms` slugs for the EVM chains daybook supports. */
+export type CoinGeckoPlatform =
+  | 'ethereum'
+  | 'polygon-pos'
+  | 'arbitrum-one'
+  | 'optimistic-ethereum'
+  | 'base'
+  | 'binance-smart-chain';
+
+export const COINGECKO_PLATFORM_BY_SOURCE: Partial<Record<SourceId, CoinGeckoPlatform>> = {
+  eth: 'ethereum',
   polygon: 'polygon-pos',
+  arbitrum: 'arbitrum-one',
+  optimism: 'optimistic-ethereum',
+  base: 'base',
+  bnb: 'binance-smart-chain',
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -100,7 +120,7 @@ export interface CoinGeckoProviderOptions {
   /** Optional API key for the pro tier. */
   apiKey?: string;
   /** CoinGecko platform for contract lookups (default: 'ethereum'). */
-  platform?: string;
+  platform?: CoinGeckoPlatform;
 }
 
 /**
@@ -113,7 +133,7 @@ export class CoinGeckoProvider implements PricingProvider {
   readonly name = 'coingecko';
 
   private readonly apiKey: string | undefined;
-  private readonly platform: string;
+  private readonly platform: CoinGeckoPlatform;
 
   constructor(options: CoinGeckoProviderOptions = {}) {
     this.apiKey = options.apiKey;
@@ -126,12 +146,15 @@ export class CoinGeckoProvider implements PricingProvider {
    * @param asset - Ticker symbol (e.g. 'ETH').
    * @param timestamp - Date to price at.
    * @param contractAddress - Optional ERC-20 contract address.
+   * @param platform - Optional CoinGecko platform ID for contract lookups
+   *   (e.g. 'polygon-pos', 'arbitrum-one'). Overrides `this.platform`.
    * @returns The price result, or `null` if unavailable.
    */
   async getPrice(
     asset: string,
     timestamp: Date,
     contractAddress?: string,
+    platform?: string,
   ): Promise<PriceResult | null> {
     // Try ticker-based lookup first
     const coinId = TICKER_TO_COINGECKO_ID[asset.toUpperCase()];
@@ -142,7 +165,8 @@ export class CoinGeckoProvider implements PricingProvider {
 
     // Fall back to contract-address lookup
     if (contractAddress) {
-      const price = await this.fetchByContract(contractAddress, timestamp);
+      const resolvedPlatform = platform ?? this.platform;
+      const price = await this.fetchByContract(contractAddress, timestamp, resolvedPlatform);
       if (price !== null) return price;
     }
 
@@ -179,9 +203,21 @@ export class CoinGeckoProvider implements PricingProvider {
 
   // ─── Contract-address lookup ─────────────────────────────────────────
 
+  /**
+   * Fetch a price by ERC-20 contract address on a specific platform.
+   *
+   * Uses a 24-hour window around the target date via the
+   * `/coins/{platform}/contract/{address}/market_chart/range` endpoint.
+   *
+   * @param contractAddress - The token's contract address.
+   * @param timestamp - Date to price at.
+   * @param platform - CoinGecko platform ID (e.g. 'polygon-pos').
+   *   Defaults to `this.platform` when called from `getPrice`.
+   */
   private async fetchByContract(
     contractAddress: string,
     timestamp: Date,
+    platform: string,
   ): Promise<PriceResult | null> {
     // Use market_chart/range with a 24h window around the target date
     const dayStart = new Date(timestamp);
@@ -189,33 +225,28 @@ export class CoinGeckoProvider implements PricingProvider {
     const from = Math.floor(dayStart.getTime() / 1000);
     const to = from + 86400;
 
-    // Try each known platform
-    for (const platformId of Object.values(PLATFORM_IDS)) {
-      const url =
-        `${BASE_URL}/coins/${platformId}/contract/${contractAddress.toLowerCase()}/market_chart/range` +
-        `?vs_currency=usd&from=${from}&to=${to}`;
+    const url =
+      `${BASE_URL}/coins/${platform}/contract/${contractAddress.toLowerCase()}/market_chart/range` +
+      `?vs_currency=usd&from=${from}&to=${to}`;
 
-      try {
-        const data = await this.fetchWithRetry(url);
-        if (!data) continue;
+    try {
+      const data = await this.fetchWithRetry(url);
+      if (!data) return null;
 
-        const prices = data?.prices as Array<[number, number]> | undefined;
-        if (!prices || prices.length === 0) continue;
+      const prices = data?.prices as Array<[number, number]> | undefined;
+      if (!prices || prices.length === 0) return null;
 
-        // Take the first price point in the range
-        const [, usd] = prices[0]!;
-        if (usd === undefined || usd === null) continue;
+      // Take the first price point in the range
+      const [, usd] = prices[0]!;
+      if (usd === undefined || usd === null) return null;
 
-        return {
-          priceUsd: String(usd),
-          source: this.name,
-        };
-      } catch {
-        continue;
-      }
+      return {
+        priceUsd: String(usd),
+        source: this.name,
+      };
+    } catch {
+      return null;
     }
-
-    return null;
   }
 
   // ─── HTTP with exponential backoff ───────────────────────────────────

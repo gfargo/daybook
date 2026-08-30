@@ -107,6 +107,63 @@ const JAN_15 = new Date('2024-01-15T14:30:00Z');
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 describe('PricingChain', () => {
+  it('source-reported provider result is NOT written to the prices cache', async () => {
+    // Insert a raw event + leg so SourceReportedProvider can find it
+    const timestamp = Math.floor(JAN_15.getTime() / 1000);
+    db.prepare(`
+      INSERT INTO raw_events (id, source, account_id, timestamp, type, raw_json)
+      VALUES ('evt-bypass', 'coinbase', 'acct-1', ?, 'trade', '{}')
+    `).run(timestamp);
+    db.prepare(`
+      INSERT INTO raw_event_legs
+        (event_id, leg_index, asset, amount, amount_usd_reported_by_source)
+      VALUES ('evt-bypass', 0, 'ETH', '1', '2305.73')
+    `).run();
+
+    const srcProvider = new SourceReportedProvider(db);
+    const coingecko = mockProvider('coingecko', { ETH: '2310.00' });
+
+    const chain = new PricingChain(
+      { providers: [srcProvider, coingecko] },
+      cache,
+    );
+
+    const result = await chain.priceAt('ETH', JAN_15);
+    expect(result).not.toBeNull();
+    expect(result!.priceUsd).toBe('2305.73');
+    expect(result!.source).toBe('source-reported');
+
+    // The source-reported hit must NOT have been written to the prices table
+    const row = db.prepare('SELECT * FROM prices WHERE asset = ? AND day = ?')
+      .get('ETH', dayUtc(JAN_15));
+    expect(row).toBeUndefined();
+  });
+
+  it('cache is source-aware: preferred provider wins regardless of insert order', async () => {
+    const day = dayUtc(JAN_15);
+
+    // Insert a coingecko price first, then a lower-priority provider price later
+    cache.set('ETH', day, 'low-priority', '9999.00');
+    cache.set('ETH', day, 'coingecko', '2300.00');
+
+    // coingecko is listed first, so it's the higher-priority provider — the
+    // cache lookup should prefer its cached value over 'low-priority'.
+    const chain = new PricingChain(
+      {
+        providers: [
+          mockProvider('coingecko', { ETH: '2310.00' }),
+          nullProvider('low-priority'),
+        ],
+      },
+      cache,
+    );
+
+    const result = await chain.priceAt('ETH', JAN_15);
+    expect(result).not.toBeNull();
+    // coingecko is highest priority in chain2 — it should win from cache
+    expect(result!.source).toBe('coingecko');
+    expect(result!.priceUsd).toBe('2300.00');
+  });
   it('source-reported provider returns a hit → chain returns it', async () => {
     const sourceReported = mockProvider('source-reported', { ETH: '2305.73' });
     const coingecko = mockProvider('coingecko', { ETH: '2310.00' });
@@ -335,5 +392,37 @@ describe('PriceCache', () => {
     cache.set('ETH', day, 'coingecko', '2310.00');
     const result = cache.get('ETH', day);
     expect(result!.priceUsd).toBe('2310.00');
+  });
+
+  it('preferredSources: picks the highest-priority source regardless of insert order', () => {
+    const day = dayUtc(JAN_15);
+    // Insert low-priority first, then high-priority
+    cache.set('BTC', day, 'fallback-provider', '50000.00');
+    cache.set('BTC', day, 'coingecko', '42000.00');
+
+    // Without preference list — returns source ASC order (coingecko before fallback-provider)
+    const noPreference = cache.get('BTC', day);
+    expect(noPreference!.source).toBe('coingecko');
+
+    // With explicit preference where coingecko is #1 — still coingecko
+    const withPreference = cache.get('BTC', day, ['coingecko', 'fallback-provider']);
+    expect(withPreference!.source).toBe('coingecko');
+    expect(withPreference!.priceUsd).toBe('42000.00');
+
+    // With inverted preference where fallback-provider is #1 — should pick fallback-provider
+    const invertedPreference = cache.get('BTC', day, ['fallback-provider', 'coingecko']);
+    expect(invertedPreference!.source).toBe('fallback-provider');
+    expect(invertedPreference!.priceUsd).toBe('50000.00');
+  });
+
+  it('preferredSources: unlisted sources are deprioritised but still returned as last resort', () => {
+    const day = dayUtc(JAN_15);
+    cache.set('SOL', day, 'unlisted-provider', '100.00');
+
+    // Preference list does not include 'unlisted-provider'
+    const result = cache.get('SOL', day, ['coingecko']);
+    // Falls back to the only available row
+    expect(result!.source).toBe('unlisted-provider');
+    expect(result!.priceUsd).toBe('100.00');
   });
 });

@@ -121,7 +121,7 @@ export async function reconcileCommand(
     // 4. Set up pricing chain and hydrate USD prices
     const pricingChain = buildPricingChain(db, config);
     const allHydratedEntries = [...priorEntries, ...yearEntries];
-    await hydratePrices(allHydratedEntries, pricingChain);
+    await hydratePrices(allHydratedEntries, pricingChain, config);
 
     // 5. Compute tax
     const strategy = resolveMethod(opts.method, config.tax.costBasisMethod);

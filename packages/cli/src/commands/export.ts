@@ -415,7 +415,7 @@ export async function exportCommand(
     );
 
     const allHydratedEntries = [...priorEntries, ...entries];
-    await hydratePrices(allHydratedEntries, pricingChain);
+    await hydratePrices(allHydratedEntries, pricingChain, config);
 
     // 7. Run computeTax() — handle Specific ID specially
     let strategy: CostBasisStrategy;

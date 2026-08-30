@@ -49,16 +49,17 @@ export function dayUtc(timestamp: Date): number {
  * ```
  */
 export class PriceCache {
-  private readonly getStmt;
+  private readonly getAllForDayStmt;
   private readonly setStmt;
 
   constructor(private readonly db: DatabaseInstance) {
-    this.getStmt = db.prepare(`
-      SELECT price_usd, source
+    // Fetch all cached rows for (asset, day) so the caller can apply its
+    // own provider-preference ordering deterministically.
+    this.getAllForDayStmt = db.prepare(`
+      SELECT price_usd, source, fetched_at
       FROM prices
       WHERE asset = ? AND day = ?
-      ORDER BY fetched_at DESC
-      LIMIT 1
+      ORDER BY source ASC, fetched_at DESC
     `);
 
     this.setStmt = db.prepare(`
@@ -70,16 +71,57 @@ export class PriceCache {
   /**
    * Look up a cached price for an asset on a given day.
    *
+   * When `preferredSources` is provided the row whose source has the
+   * lowest index in that list wins. If multiple rows share the same
+   * source, the most recently fetched one is used (fetched_at DESC).
+   * Rows whose source does not appear in `preferredSources` are kept as
+   * a last-resort fallback, ordered by source ASC for stability.
+   *
+   * When `preferredSources` is omitted, the best-ranked row in the
+   * preference list is still used (empty preference = pure fallback
+   * order: source ASC, fetched_at DESC).
+   *
    * @param asset - Canonical ticker (e.g. 'ETH').
    * @param day - Unix seconds at 00:00 UTC (use `dayUtc()` to compute).
+   * @param preferredSources - Optional provider preference order, highest
+   *   priority first (e.g. `['coingecko', 'manual-override']`).
    * @returns The cached price result, or `null` if not cached.
    */
-  get(asset: string, day: number): PriceResult | null {
-    const row = this.getStmt.get(asset, day) as
-      | { price_usd: string; source: string }
-      | undefined;
-    if (!row) return null;
-    return { priceUsd: row.price_usd, source: row.source };
+  get(
+    asset: string,
+    day: number,
+    preferredSources?: string[],
+  ): PriceResult | null {
+    type Row = { price_usd: string; source: string; fetched_at: number };
+    const rows = this.getAllForDayStmt.all(asset, day) as Row[];
+    if (rows.length === 0) return null;
+
+    if (!preferredSources || preferredSources.length === 0) {
+      // No preference list: deterministic fallback — source ASC, fetched_at DESC.
+      // getAllForDayStmt already orders by source ASC; within the same source
+      // the most recent row appears first due to fetched_at DESC ordering.
+      const row = rows[0]!;
+      return { priceUsd: row.price_usd, source: row.source };
+    }
+
+    // Build an index of source → preference rank (lower = better).
+    const rankOf = new Map<string, number>(
+      preferredSources.map((s, i) => [s, i]),
+    );
+
+    // Sort by: (rank in preferredSources ASC, fallback position for unknowns,
+    // fetched_at DESC for same-source tie-break).
+    const UNKNOWN_RANK = preferredSources.length; // push unlisted sources to end
+    const sorted = [...rows].sort((a, b) => {
+      const ra = rankOf.get(a.source) ?? UNKNOWN_RANK;
+      const rb = rankOf.get(b.source) ?? UNKNOWN_RANK;
+      if (ra !== rb) return ra - rb;
+      // Same rank — pick the most recently fetched row.
+      return b.fetched_at - a.fetched_at;
+    });
+
+    const winner = sorted[0]!;
+    return { priceUsd: winner.price_usd, source: winner.source };
   }
 
   /**

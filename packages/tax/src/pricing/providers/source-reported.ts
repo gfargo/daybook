@@ -22,12 +22,24 @@ import { dayUtc } from '../cache.js';
 /**
  * Looks up source-reported USD prices from the `raw_event_legs` table.
  *
- * Matches by asset ticker (case-insensitive) and calendar day (UTC).
- * Returns a unit price derived from the first nearby non-null
- * `amount_usd_reported_by_source` found.
+ * Matches by asset ticker (case-insensitive) and calendar day (UTC), picking
+ * the row whose timestamp is nearest the event being priced — not
+ * necessarily the leg being priced. If the same asset traded multiple times
+ * on one day at different fill prices, the nearest trade's price can still
+ * be applied to an unrelated event. Bypassing the shared cache (see
+ * `cacheMode` below) prevents that mismatch from leaking across days, but
+ * does not eliminate it within a single day. Known follow-up; not fixed
+ * here.
  */
 export class SourceReportedProvider implements PricingProvider {
   readonly name = 'source-reported';
+  /**
+   * Source-reported prices are per-transaction fill prices from a specific
+   * venue — not a market price for the whole day.  Caching them under
+   * (asset, day) would let one trade's execution price shadow every other
+   * event on that day, so we bypass the shared cache entirely.
+   */
+  readonly cacheMode = 'bypass' as const;
 
   private readonly stmt;
 
