@@ -17,6 +17,7 @@
  *   --source robinhood --file <path>  CSV import
  *   --source csv --file <path>        Generic CSV import
  *   --source eth|polygon|base|...     EVM sync via Alchemy
+ *   --source solana                   Solana sync via JSON-RPC
  */
 
 import { readFileSync } from 'node:fs';
@@ -32,9 +33,13 @@ import {
     ingestEvm,
     resolveFromBlock,
 } from '@daybook/sources/evm';
+import {
+    ingestSolana,
+    SolanaRpcProvider,
+} from '@daybook/sources/solana';
 import type { Config } from '../config.js';
 import { expandPath, loadConfig } from '../config.js';
-import { renderCsvSyncOutput, renderEvmSyncOutput } from './SyncOutput.js';
+import { renderCsvSyncOutput, renderEvmSyncOutput, renderSolanaSyncOutput } from './SyncOutput.js';
 
 export interface SyncOptions {
   source: string;
@@ -107,6 +112,9 @@ export async function syncCommand(opts: SyncOptions): Promise<void> {
       case 'optimism':
       case 'bnb':
         await syncEvm(opts, config, repo);
+        break;
+      case 'solana':
+        await syncSolana(opts, config, repo);
         break;
       default:
         throw new Error(`Unknown source: ${opts.source}`);
@@ -953,6 +961,95 @@ async function syncEvm(
     stats,
     ...(failedGasCount > 0 ? { failedGasCount } : {}),
     ...(fromBlockInfo ? { fromBlock: fromBlockInfo } : {}),
+    dbCounts,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Solana sync (JSON-RPC via SolanaRpcProvider)
+// ─────────────────────────────────────────────────────────────────────────
+
+async function syncSolana(
+  opts: SyncOptions,
+  config: Config,
+  repo: Repo,
+): Promise<void> {
+  // Resolve account: explicit --account, or the first solana account in config.
+  const accountId =
+    opts.account ??
+    config.accounts.find(a => a.source === 'solana')?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Solana account configured. ' +
+      'Add one with `daybook account add <id> --source solana --identifier <address>` first.',
+    );
+  }
+
+  const account = repo.getAccount(accountId);
+  if (!account) {
+    throw new Error(
+      `Account "${accountId}" not found in DB. Was \`init\` run after the last config change?`,
+    );
+  }
+  if (account.source !== 'solana') {
+    throw new Error(
+      `Account "${accountId}" is on source "${account.source}", not solana.`,
+    );
+  }
+
+  // Resolve RPC endpoint from config or env.
+  // Priority: config.providers.solana.endpoint > SOLANA_RPC_URL env var > public mainnet.
+  const configEndpoint = config.providers?.solana?.endpoint;
+  const apiKeyEnv = config.providers?.solana?.apiKeyEnv ?? 'SOLANA_RPC_URL';
+  const envRpcUrl = process.env[apiKeyEnv];
+  const rpcUrl = configEndpoint ?? envRpcUrl ?? undefined;
+
+  const provider = new SolanaRpcProvider(rpcUrl);
+
+  // Resolve incremental cursor: the newest signature from the last sync.
+  // --from <date> is interpreted as "reset cursor to oldest transaction after
+  // this date" — for Solana, it means we clear the cursor and start fresh
+  // from that point. Since Solana cursors are signatures (not block numbers),
+  // we map --from to a cursor reset rather than a block-based filter.
+  let sinceSignature: string | undefined;
+  if (opts.from) {
+    // --from on Solana: ignore the stored cursor and start fresh.
+    // The Solana RPC doesn't support block-number filters on getSignaturesForAddress,
+    // so --from resets the cursor and the user gets all available history
+    // from the RPC (subject to node's history retention).
+    sinceSignature = undefined;
+  } else {
+    // Use the stored cursor from the previous run.
+    const syncState = repo.getSyncState('solana', accountId);
+    sinceSignature = syncState?.cursor ?? undefined;
+  }
+
+  const { events, stats, newestSignature } = await ingestSolana({
+    provider,
+    address: account.identifier,
+    accountId,
+    ...(sinceSignature ? { sinceSignature } : {}),
+  });
+
+  const insertResult = repo.insertRawEvents(events);
+
+  // Persist the incremental cursor (newest signature seen).
+  if (newestSignature !== undefined) {
+    repo.upsertSyncState({
+      source: 'solana',
+      accountId,
+      cursor: newestSignature,
+    });
+  }
+
+  const dbCounts = repo.countByType({ accountId });
+  renderSolanaSyncOutput({
+    source: 'solana',
+    accountId,
+    eventCount: events.length,
+    inserted: insertResult.inserted,
+    skipped: insertResult.skipped,
+    stats,
     dbCounts,
   });
 }

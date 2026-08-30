@@ -100,6 +100,7 @@ export const ConfigSchema = z.object({
     .object({
       alchemy: ProviderConfigSchema.optional(),
       coingecko: ProviderConfigSchema.optional(),
+      solana: ProviderConfigSchema.optional(),
     })
     .default({}),
 });

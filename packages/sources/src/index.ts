@@ -18,3 +18,4 @@ export * as kraken from './kraken/index.js';
 export * as mexc from './mexc/index.js';
 export * as okx from './okx/index.js';
 export * as robinhood from './robinhood/index.js';
+export * as solana from './solana/index.js';

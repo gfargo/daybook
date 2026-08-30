@@ -32,6 +32,7 @@ const SUPPORTED_ACCOUNT_SOURCES = [
   'base',
   'optimism',
   'bnb',
+  'solana',
 ] as const;
 type SupportedAccountSource = typeof SUPPORTED_ACCOUNT_SOURCES[number];
 
