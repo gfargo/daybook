@@ -149,6 +149,39 @@ describe('parseOkxCsv', () => {
     expect(result.warnings.length).toBe(1);
   });
 
+  it('drops whole V2 trade group when any leg has a blank Amount, never emits partial event', () => {
+    // Reproduces the issue: a buy order where the USDT leg has a blank Amount.
+    // Without the fix, this emitted a single-leg crypto_in (free receipt with zero basis).
+    const csv = [
+      'id,Order id,Time,Trade Type,Symbol,Action,Amount,Trading Unit,Filled Price,Filled Price Unit,PnL,Fee,Fee Unit,Position Change,Position Balance,Position Unit,Balance Change,Balance,Balance Unit',
+      '1,order-bad,2024-05-01 10:00:00,spot,BTC-USDT,buy,0.05,BTC,30000,USDT,0,0,USDT,0.05,0.05,BTC,0,0,BTC',
+      // USDT leg has blank Amount — should kill the whole group
+      '2,order-bad,2024-05-01 10:00:00,spot,BTC-USDT,sell,,USDT,30000,USDT,0,0,USDT,0,0,USDT,-1500,0,USDT',
+      '3,order-bad,2024-05-01 10:00:00,fee,BTC-USDT,buy,0.00005,BTC,30000,USDT,0,0,USDT,0,0,BTC,0,0,BTC',
+    ].join('\n');
+
+    const result = parseOkxCsv(csv, { accountId });
+
+    expect(result.events).toEqual([]);
+    expect(result.unparsedRowCount).toBe(3);
+    // Two row-level warnings + one group-level drop warning
+    expect(result.warnings.length).toBeGreaterThanOrEqual(2);
+    expect(result.warnings.some((w) => w.includes('order-bad'))).toBe(true);
+  });
+
+  it('clean V2 trade group still parses correctly after fix', () => {
+    const csv = [
+      'id,Order id,Time,Trade Type,Symbol,Action,Amount,Trading Unit,Filled Price,Filled Price Unit,PnL,Fee,Fee Unit,Position Change,Position Balance,Position Unit,Balance Change,Balance,Balance Unit',
+      '1,order-ok,2024-05-02 11:00:00,spot,BTC-USDT,buy,0.1,BTC,30000,USDT,0,0,USDT,0.1,0.1,BTC,0,0,BTC',
+      '2,order-ok,2024-05-02 11:00:00,spot,BTC-USDT,sell,-3000,USDT,30000,USDT,0,0,USDT,0,0,USDT,-3000,0,USDT',
+    ].join('\n');
+
+    const result = parseOkxCsv(csv, { accountId });
+    expect(result.events).toHaveLength(1);
+    expect(result.unparsedRowCount).toBe(0);
+    expect(result.events[0]?.type).toBe('trade');
+  });
+
   it('rejects unrecognized headers', () => {
     expect(() => parseOkxCsv('foo,bar\n1,2', { accountId })).toThrow(
       'OKX CSV header not recognized',

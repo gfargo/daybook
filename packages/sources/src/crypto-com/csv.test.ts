@@ -115,6 +115,44 @@ describe('parseCryptoComCsv', () => {
     ]);
   });
 
+  it('drops Exchange trade row when pair is unparsable, never emits fee_only', () => {
+    // Reproduces the bug: when the pair/volume can't be parsed, the principal legs
+    // are skipped but a surviving fee leg kept legs.length > 0, so the event was
+    // emitted as fee_only. With the fix, the whole row is dropped with a warning.
+    const csv = [
+      'Order ID,Trade ID,Time (UTC),Symbol,Side,Trade Price,Trade Amount,Volume of Business,Fee,Fee Currency',
+      'order-1,trade-bad,2024-01-02 10:00:00,UNKNOWNPAIR,BUY,500,0.1,50,0.05,USD',
+    ].join('\n');
+
+    const result = parseCryptoComCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(0);
+    expect(result.unparsedRowCount).toBe(1);
+    expect(result.warnings.some((w) => w.includes('unparsable'))).toBe(true);
+    // Regression: must not emit a fee_only event
+    expect(result.events.some((e) => e.type === 'fee_only')).toBe(false);
+  });
+
+  it('parses BTCTRY after TRY is added to FIAT_CURRENCIES', () => {
+    // Before the fix, TRY was not in FIAT_CURRENCIES so parsePair('BTCTRY') returned
+    // {} (no quote recognized), the principal legs were dropped, and the trade was lost
+    // or degraded to fee_only.
+    const csv = [
+      'Order ID,Trade ID,Time (UTC),Symbol,Side,Trade Price,Trade Amount,Volume of Business,Fee,Fee Currency',
+      'order-try,trade-try,2024-03-01 10:00:00,BTC_TRY,BUY,2000000,0.01,20000,10,TRY',
+    ].join('\n');
+
+    const result = parseCryptoComCsv(csv, { accountId });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.type).toBe('trade');
+    const legs = result.events[0]?.legs ?? [];
+    const btcLeg = legs.find((l) => l.asset === 'BTC');
+    const tryLeg = legs.find((l) => l.asset === 'TRY');
+    expect(btcLeg).toBeDefined();
+    expect(tryLeg).toBeDefined();
+  });
+
   it('rejects unrecognized headers', () => {
     expect(() => parseCryptoComCsv('foo,bar\n1,2', { accountId })).toThrow(
       'Crypto.com CSV header not recognized',

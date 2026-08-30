@@ -185,6 +185,13 @@ function buildExchangeTradeEvent(
       legs.push(assetLeg(base, amount));
       legs.push(assetLeg(quote, quoteAmount.negated()));
     }
+  } else if (pick(row, ['symbol']) || pick(row, ['side'])) {
+    // Trade intent is present (symbol/side columns are populated) but the
+    // principal legs can't be parsed — don't degrade to a fee_only event.
+    warnings.push(
+      `Row ${row.rowNumber} skipped: Crypto.com Exchange trade pair/amount unparsable`,
+    );
+    return undefined;
   }
   if (fee) {
     legs.push(assetLeg(feeCurrency, fee.negated(), true));
