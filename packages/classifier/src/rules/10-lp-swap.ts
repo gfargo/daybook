@@ -41,7 +41,18 @@
  *     counterparty AND requiring the 2-asset side to be two distinct assets
  *     reduces false positives significantly. LP interactions that go through
  *     an intermediary contract (not the position manager) will not be
- *     detected by this rule.
+ *     detected by this rule. The shape guards below require *exactly* one
+ *     LP-token leg (not "at least one"), so a 2-out/2-in transaction never
+ *     ambiguously matches either branch.
+ *   - Catalog note: the V3 NonfungiblePositionManager and V2/V3 Factory rows
+ *     in defi-contracts.json are kept for defensive/future coverage but
+ *     rarely fire this rule in practice. V3 mint()/burn() emit an ERC-721
+ *     position-NFT event that rule 08 (nft-classification, which runs
+ *     before rule 10) already claims by txHash, and a V2 addLiquidity call's
+ *     observed on-chain counterparty is typically the router (claimed by
+ *     rule 04) or the pool/pair contract, not the factory itself. Don't
+ *     write a test expecting a V3 position-manager mint to produce a
+ *     rule-10 trade — it won't reach this rule.
  */
 
 import type { AssetLeg, LedgerEntry, RawEvent } from '@daybook/ledger';
@@ -144,12 +155,12 @@ export const lpSwap: ClassifierRule = {
       // Determine shape: deposit (2-out + 1-in) or withdrawal (1-out + 2-in)
       let reason: string;
 
-      if (outLegs.length === 2 && inLegs.length >= 1) {
+      if (outLegs.length === 2 && inLegs.length === 1) {
         // LP deposit: two distinct assets out → LP token in
         const outAssets = new Set(outLegs.map((l) => l.asset.toLowerCase()));
         if (outAssets.size < 2) continue; // same asset on both sides — not an LP deposit
         reason = `LP deposit via ${lpRouter.protocol} ${lpRouter.version} (tx ${txHash.slice(0, 10)}…)`;
-      } else if (outLegs.length >= 1 && inLegs.length === 2) {
+      } else if (outLegs.length === 1 && inLegs.length === 2) {
         // LP withdrawal: LP token out → two distinct assets in
         const inAssets = new Set(inLegs.map((l) => l.asset.toLowerCase()));
         if (inAssets.size < 2) continue; // same asset on both sides — not an LP withdrawal

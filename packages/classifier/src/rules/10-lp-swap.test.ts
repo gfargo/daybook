@@ -376,6 +376,10 @@ describe('non-match: no txHash', () => {
 // Real catalog entry: Uniswap V2 Factory on Ethereum mainnet (chain 1)
 // ─────────────────────────────────────────────────────────────────────────
 
+// Smoke test that the real defi-contracts.json loads and rule 10 finds its
+// lp-router entries by address — not a correctness test of the catalog
+// contents. If this address is ever corrected or removed in
+// defi-contracts.json, update UNI_V2_FACTORY above to match.
 describe('real catalog: Uniswap V2 Factory (chain 1)', () => {
   it('collapses an LP deposit using the real catalog entry', () => {
     const wethOut: RawEvent = {

@@ -19,7 +19,6 @@
   { "chain": 137, "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84", "protocol": "Lido", "version": "stETH (Polygon)", "kind": "staking" },
   { "chain": 137, "address": "0x3a58a54c066fdc0f2d55fc9c89f0415c92ebf3c4", "protocol": "Lido", "version": "stMATIC", "kind": "staking" },
   { "chain": 137, "address": "0xc35dadb65012ec5796536bd9864ed8773abc74c4", "protocol": "SushiSwap", "version": "V2 Factory (LP, Polygon)", "kind": "lp-router" },
-  { "chain": 137, "address": "0xa5e0829caced8ffdd4de3c43696c57f7d7a678ff", "protocol": "QuickSwap", "version": "V2 Router (LP, Polygon)", "kind": "lp-router" },
   { "chain": 137, "address": "0x5757371414417b8c6caad45baef941abc7d3ab32", "protocol": "QuickSwap", "version": "V2 Factory (LP, Polygon)", "kind": "lp-router" },
   { "chain": 42161, "address": "0xc35dadb65012ec5796536bd9864ed8773abc74c4", "protocol": "SushiSwap", "version": "V2 Factory (LP, Arbitrum)", "kind": "lp-router" },
   { "chain": 42161, "address": "0xf1d7cc64fb4452f05c498126312ebe29f30fbcf9", "protocol": "Uniswap", "version": "V3 NonfungiblePositionManager (LP, Arbitrum)", "kind": "lp-router" },
