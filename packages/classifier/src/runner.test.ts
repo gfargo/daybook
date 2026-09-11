@@ -1105,12 +1105,15 @@ describe('NFT rule ordering', () => {
   it('NFT rule runs at position 08 in DEFAULT_RULES, before default passthrough', () => {
     const nftRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '08-nft-classification');
     const defiRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '09-defi-classification');
+    const lpSwapRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '10-lp-swap');
     const defaultRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '07-default');
 
     expect(nftRuleIndex).toBe(6); // 0-indexed position 6 = 7th rule
     expect(defiRuleIndex).toBe(7); // 0-indexed position 7 = 8th rule
-    expect(defaultRuleIndex).toBe(8); // 0-indexed position 8 = 9th rule
+    expect(lpSwapRuleIndex).toBe(8); // 0-indexed position 8 = 9th rule
+    expect(defaultRuleIndex).toBe(9); // 0-indexed position 9 = 10th rule
     expect(nftRuleIndex).toBeLessThan(defiRuleIndex);
-    expect(defiRuleIndex).toBeLessThan(defaultRuleIndex);
+    expect(defiRuleIndex).toBeLessThan(lpSwapRuleIndex);
+    expect(lpSwapRuleIndex).toBeLessThan(defaultRuleIndex);
   });
 });

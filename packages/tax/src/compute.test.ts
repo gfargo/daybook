@@ -1456,3 +1456,317 @@ describe('computeTax — per-account lot pooling', () => {
     expect(result.disposals).toHaveLength(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// LP deposit/withdrawal integration tests
+//
+// Validates that trade entries produced by classifier rule 10 (LP swap
+// collapse) flow correctly through the tax engine:
+//
+//   Deposit:    dispose both underlying asset lots + acquire the LP token lot.
+//               The LP token leg has no USD value (no market ticker) →
+//               entry ID lands in unpricedEvents.
+//
+//   Withdrawal: dispose the LP token lot + acquire both underlying asset lots.
+//               If the LP lot was acquired without a USD price, the disposal
+//               proceeds are also unpriced; the entry is added to
+//               unpricedEvents. Priced underlying acquisitions ARE recorded.
+//
+// Known limitation documented here and in README:
+//   LP tokens (e.g. UNI-V2, SLP) have no market ticker, so pricing/chain.ts
+//   cannot resolve their FMV. The LP leg of a deposit/withdrawal trade entry
+//   will land in `unpricedEvents` (compute.ts:268/314) until a price override
+//   or a future sub-item ships an LP token pricing strategy. The existing CLI
+//   `export` command already counts and reports unpriced entries, so LP trades
+//   surface automatically without silently zeroing gain/loss.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('LP deposit/withdrawal — tax engine integration', () => {
+  // ─── Deposit ───────────────────────────────────────────────────────────
+  describe('LP deposit trade', () => {
+    /**
+     * Scenario:
+     *   1. Buy 1 WETH at $2000 (prior trade)
+     *   2. Buy 2000 USDC at $2000 (prior trade)
+     *   3. LP deposit: send 1 WETH (-$2000) + 2000 USDC (-$2000), receive
+     *      0.5 UNI-V2 (no USD value — LP token is unpriced)
+     *
+     * Expected:
+     *   - 2 disposals in 2024 (WETH and USDC disposed at their cost basis)
+     *   - The UNI-V2 in-leg has no USD → entry ID in unpricedEvents
+     *   - No gain/loss on the unpriced LP acquisition (cannot compute)
+     */
+    it('disposes both underlying asset lots and pushes entry to unpricedEvents for the LP leg', () => {
+      const entries: LedgerEntry[] = [
+        // Acquire WETH lot: 1 WETH at $2000
+        makeEntry({
+          id: 'lp-buy-weth',
+          timestamp: new Date('2023-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'WETH', amount: '1', amountUsdAtTime: '2000' },
+            { asset: 'USD', amount: '-2000', amountUsdAtTime: '2000' },
+          ],
+        }),
+        // Acquire USDC lot: 2000 USDC at $2000
+        makeEntry({
+          id: 'lp-buy-usdc',
+          timestamp: new Date('2023-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'USDC', amount: '2000', amountUsdAtTime: '2000' },
+            { asset: 'USD', amount: '-2000', amountUsdAtTime: '2000' },
+          ],
+        }),
+        // LP deposit trade (from classifier rule 10):
+        //   WETH out + USDC out + UNI-V2 in (LP token, unpriced)
+        makeEntry({
+          id: 'lp-deposit-trade',
+          timestamp: new Date('2024-03-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'WETH', amount: '-1', amountUsdAtTime: '2000' },
+            { asset: 'USDC', amount: '-2000', amountUsdAtTime: '2000' },
+            { asset: 'UNI-V2', amount: '0.5' }, // no amountUsdAtTime — LP token unpriced
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      // Two disposals: WETH and USDC
+      expect(result.disposals).toHaveLength(2);
+
+      const wethDisposal = result.disposals.find((d) => d.asset === 'WETH');
+      const usdcDisposal = result.disposals.find((d) => d.asset === 'USDC');
+
+      expect(wethDisposal).toBeDefined();
+      expect(usdcDisposal).toBeDefined();
+
+      // WETH: proceeds $2000 - basis $2000 = $0 gain (held <1yr from Jun 2023)
+      expect(wethDisposal!.proceeds).toBe('2000');
+      expect(wethDisposal!.costBasis).toBe('2000');
+      expect(wethDisposal!.gainLoss).toBe('0');
+
+      // USDC: proceeds $2000 - basis $2000 = $0 gain
+      expect(usdcDisposal!.proceeds).toBe('2000');
+      expect(usdcDisposal!.costBasis).toBe('2000');
+      expect(usdcDisposal!.gainLoss).toBe('0');
+
+      // LP token in-leg has no USD → entry appears in unpricedEvents
+      expect(result.unpricedEvents).toContain('lp-deposit-trade');
+    });
+
+    it('does NOT silently zero gain — the WETH disposal gain/loss is computed from actual proceeds', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'lp-buy-weth-gain',
+          timestamp: new Date('2022-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'WETH', amount: '1', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'lp-buy-usdc-gain',
+          timestamp: new Date('2022-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'USDC', amount: '2000', amountUsdAtTime: '2000' },
+            { asset: 'USD', amount: '-2000', amountUsdAtTime: '2000' },
+          ],
+        }),
+        makeEntry({
+          id: 'lp-deposit-gain',
+          timestamp: new Date('2024-03-15T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'WETH', amount: '-1', amountUsdAtTime: '2500' }, // WETH appreciated to $2500
+            { asset: 'USDC', amount: '-2000', amountUsdAtTime: '2000' },
+            { asset: 'UNI-V2', amount: '0.5' }, // unpriced LP token
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      const wethDisposal = result.disposals.find((d) => d.asset === 'WETH');
+      expect(wethDisposal).toBeDefined();
+      // proceeds $2500, basis $1000 → $1500 gain (long-term: held 2022 → 2024)
+      expect(wethDisposal!.proceeds).toBe('2500');
+      expect(wethDisposal!.costBasis).toBe('1000');
+      expect(wethDisposal!.gainLoss).toBe('1500');
+      expect(wethDisposal!.term).toBe('long-term');
+
+      // LP token leg still unpriced
+      expect(result.unpricedEvents).toContain('lp-deposit-gain');
+    });
+  });
+
+  // ─── Withdrawal ────────────────────────────────────────────────────────
+  describe('LP withdrawal trade', () => {
+    /**
+     * Scenario:
+     *   1. "Acquire" 0.5 UNI-V2 at $4000 cost (via price override / prior deposit
+     *      where FMV was known) — modelled as a trade with amountUsdAtTime
+     *   2. LP withdrawal: send 0.5 UNI-V2 (-$4000), receive 1 WETH (+$2500)
+     *      and 2000 USDC (+$2000)
+     *
+     * Expected:
+     *   - 1 disposal (UNI-V2 at $4000 basis, proceeds $4000 — break-even)
+     *   - 2 acquisitions (WETH lot at $2500, USDC lot at $2000)
+     */
+    it('disposes the LP token lot and acquires both underlying asset lots', () => {
+      const entries: LedgerEntry[] = [
+        // Seed the UNI-V2 lot with a known cost (e.g. via price override)
+        makeEntry({
+          id: 'lp-acquire-lp-token',
+          timestamp: new Date('2023-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'UNI-V2', amount: '0.5', amountUsdAtTime: '4000' },
+            { asset: 'USD', amount: '-4000', amountUsdAtTime: '4000' },
+          ],
+        }),
+        // LP withdrawal trade (from classifier rule 10):
+        //   UNI-V2 out + WETH in + USDC in
+        makeEntry({
+          id: 'lp-withdrawal-trade',
+          timestamp: new Date('2024-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'UNI-V2', amount: '-0.5', amountUsdAtTime: '4000' },
+            { asset: 'WETH', amount: '1', amountUsdAtTime: '2500' },
+            { asset: 'USDC', amount: '2000', amountUsdAtTime: '2000' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      // 1 disposal: UNI-V2
+      expect(result.disposals).toHaveLength(1);
+      const lpDisposal = result.disposals[0]!;
+      expect(lpDisposal.asset).toBe('UNI-V2');
+      expect(lpDisposal.proceeds).toBe('4000');
+      expect(lpDisposal.costBasis).toBe('4000');
+      expect(lpDisposal.gainLoss).toBe('0');
+
+      // No unpriced events — all legs have USD values
+      expect(result.unpricedEvents).toHaveLength(0);
+    });
+
+    it('acquires WETH and USDC lots that can be disposed in a subsequent sale', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'lp-acq-lp2',
+          timestamp: new Date('2022-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'UNI-V2', amount: '0.5', amountUsdAtTime: '3000' },
+            { asset: 'USD', amount: '-3000', amountUsdAtTime: '3000' },
+          ],
+        }),
+        makeEntry({
+          id: 'lp-withdrawal-2',
+          timestamp: new Date('2023-06-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'UNI-V2', amount: '-0.5', amountUsdAtTime: '3000' },
+            { asset: 'WETH', amount: '1', amountUsdAtTime: '2000' },
+            { asset: 'USDC', amount: '1500', amountUsdAtTime: '1500' },
+          ],
+        }),
+        // Sell the WETH received from the withdrawal in 2024
+        makeEntry({
+          id: 'lp-sell-weth',
+          timestamp: new Date('2024-03-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'WETH', amount: '-1', amountUsdAtTime: '2500' },
+            { asset: 'USD', amount: '2500', amountUsdAtTime: '2500' },
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      // 1 disposal in 2024: WETH sold for $2500
+      expect(result.disposals).toHaveLength(1);
+      const wethDisposal = result.disposals[0]!;
+      expect(wethDisposal.asset).toBe('WETH');
+      // Cost basis comes from the withdrawal acquisition price ($2000)
+      expect(wethDisposal.costBasis).toBe('2000');
+      expect(wethDisposal.proceeds).toBe('2500');
+      expect(wethDisposal.gainLoss).toBe('500');
+    });
+  });
+
+  // ─── Unpriced LP token ────────────────────────────────────────────────
+  describe('unpriced LP token surfaces in unpricedEvents', () => {
+    it('LP token in-leg with no USD → entry in unpricedEvents, not silently zeroed', () => {
+      const entries: LedgerEntry[] = [
+        makeEntry({
+          id: 'lp-pre-buy',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '1', amountUsdAtTime: '1200' },
+            { asset: 'USD', amount: '-1200', amountUsdAtTime: '1200' },
+          ],
+        }),
+        makeEntry({
+          id: 'lp-pre-usdc',
+          timestamp: new Date('2023-01-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'USDC', amount: '1000', amountUsdAtTime: '1000' },
+            { asset: 'USD', amount: '-1000', amountUsdAtTime: '1000' },
+          ],
+        }),
+        makeEntry({
+          id: 'lp-unpriced-deposit',
+          timestamp: new Date('2024-07-01T00:00:00Z'),
+          type: 'trade',
+          legs: [
+            { asset: 'ETH', amount: '-1', amountUsdAtTime: '1500' },
+            { asset: 'USDC', amount: '-1000', amountUsdAtTime: '1000' },
+            { asset: 'SLP', amount: '100' }, // SushiSwap LP token — no FMV
+          ],
+        }),
+      ];
+
+      const result = computeTax(entries, {
+        method: FIFO,
+        holdingPeriodDays: 365,
+        year: 2024,
+      });
+
+      // SLP leg is unpriced → entry must appear in unpricedEvents
+      expect(result.unpricedEvents).toContain('lp-unpriced-deposit');
+
+      // ETH and USDC disposals are still computed correctly (not suppressed)
+      expect(result.disposals).toHaveLength(2);
+      const ethD = result.disposals.find((d) => d.asset === 'ETH');
+      expect(ethD).toBeDefined();
+      expect(ethD!.gainLoss).toBe('300'); // $1500 - $1200
+    });
+  });
+});

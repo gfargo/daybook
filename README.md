@@ -492,6 +492,41 @@ After the first sync, daybook stores the newest transaction signature as a curso
 | `daybook compare <year>` | Compare FIFO, HIFO, and LIFO side by side |
 | `daybook overrides set/list/remove/prune` | Manage manual price overrides and classifier overrides |
 
+## DeFi classification
+
+### Supported DeFi patterns
+
+daybook's classifier recognises the following on-chain DeFi interactions for EVM wallets:
+
+| Pattern | Classifier output |
+| --- | --- |
+| Staking native asset to a known contract (Lido, RocketPool, Frax, etc.) | `transfer_self` |
+| Unstaking / receiving native asset from a staking contract | `transfer_self` |
+| Receiving a reward token from a staking or reward-distributor contract | `income` |
+| LP deposit — send 2 distinct assets, receive 1 fungible LP token | `trade` |
+| LP withdrawal — send 1 fungible LP token, receive 2 distinct assets | `trade` |
+
+Recognised LP position managers and factories include Uniswap V2 Factory, QuickSwap (Polygon), SushiSwap, PancakeSwap (BNB), and per-chain Uniswap V3 NonfungiblePositionManager deployments. Contracts are cataloged in `packages/classifier/src/defi-contracts.json`.
+
+### LP token pricing limitation
+
+LP tokens (e.g. `UNI-V2`, `SLP`) have no standalone market ticker, so the pricing chain (`packages/tax/src/pricing/chain.ts`) **cannot resolve their fair-market value**. LP deposit and withdrawal entries are classified as `trade`, but the LP token leg is unpriced.
+
+- On a **deposit**, the LP token *acquisition* leg is unpriced → the `trade` entry ID appears in `unpricedEvents`. The two underlying asset *disposals* are priced and gain/loss is computed normally.
+- On a **withdrawal**, the LP token *disposal* leg is unpriced → the `trade` entry ID appears in `unpricedEvents`. The two underlying asset *acquisitions* are priced and their lots are recorded with correct cost basis.
+
+The `daybook export` command already counts and reports unpriced entries:
+
+```
+⚠  3 events could not be priced — run `daybook overrides set` to assign manual prices.
+```
+
+Use `daybook overrides set <LP_TOKEN_TICKER> <DATE> <PRICE>` to provide a FMV for LP token disposals. Gain/loss on LP lots is **not silently zeroed** — it is deferred until a price is available.
+
+**Note on scope:**
+- Uniswap V3 `mint()` issues an ERC-721 position NFT (classified by the NFT rule), not a fungible LP token. V3 NFT positions are handled by rule 08 (NFT classification), not the LP rule.
+- LP interactions that go through an intermediary contract not in the catalog will not be detected. Use `daybook overrides set` to manually classify those entries.
+
 ## Roadmap
 
 See [open issues](https://github.com/gfargo/daybook/issues) for planned features and enhancements.

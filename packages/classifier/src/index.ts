@@ -4,15 +4,16 @@
  * Turns RawEvents into LedgerEntries.
  *
  * Rules run in this order (see data-model-spec.md §"Classifier rules"):
- *   1. Coinbase pair merger    — merge Retail Staking Transfer / Eth2 Deprecation pairs
- *   2. Self-transfer from CB   — parse Send notes, match to user's own addresses
- *   3. Cross-source self match — match CB Send to on-chain receive (and vice versa)
- *   4. DEX swap collapse       — group by txHash, fold N transfers into 1 trade
- *   5. Bridge detection        — match outbound bridge tx to destination-chain receive
- *   6. Approval gas accounting — produce fee_disposal events for approve() calls
- *   7. NFT classification      — detect NFT acquisition/disposal patterns by txHash
- *   8. DeFi classification     — staking/reward-distributor contract income + transfer_self
- *   9. Default passthrough     — direct mapping for everything else
+ *   1.  Coinbase pair merger    — merge Retail Staking Transfer / Eth2 Deprecation pairs
+ *   2.  Self-transfer from CB   — parse Send notes, match to user's own addresses
+ *   3.  Cross-source self match — match CB Send to on-chain receive (and vice versa)
+ *   4.  DEX swap collapse       — group by txHash, fold N transfers into 1 trade
+ *   5.  Bridge detection        — match outbound bridge tx to destination-chain receive
+ *   6.  Approval gas accounting — produce fee_disposal events for approve() calls
+ *   7.  NFT classification      — detect NFT acquisition/disposal patterns by txHash
+ *   8.  DeFi classification     — staking/reward-distributor contract income + transfer_self
+ *   9.  LP swap collapse        — fold LP deposit/withdrawal into 1 trade (lp-router catalog)
+ *   10. Default passthrough     — direct mapping for everything else
  */
 
 export { classify, entryId, findPrunableOverrides, validateOverrides } from './runner.js';
@@ -35,6 +36,7 @@ export { bridgeDetection } from './rules/05-bridge-detection.js';
 export { approvalGas } from './rules/06-approval-gas.js';
 export { nftClassification } from './rules/08-nft-classification.js';
 export { defiClassification } from './rules/09-defi-classification.js';
+export { lpSwap } from './rules/10-lp-swap.js';
 export { defaultPassthrough } from './rules/07-default.js';
 
 // ─── Convenience: the default rule chain ─────────────────────────────────
@@ -46,10 +48,11 @@ import { bridgeDetection } from './rules/05-bridge-detection.js';
 import { approvalGas } from './rules/06-approval-gas.js';
 import { nftClassification } from './rules/08-nft-classification.js';
 import { defiClassification } from './rules/09-defi-classification.js';
+import { lpSwap } from './rules/10-lp-swap.js';
 import { defaultPassthrough } from './rules/07-default.js';
 import type { ClassifierRule } from './types.js';
 
-/** The default 9-rule chain in execution order. */
+/** The default 10-rule chain in execution order. */
 export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   cbPairMerger,
   cbSelfTransfer,
@@ -59,6 +62,7 @@ export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   approvalGas,
   nftClassification,
   defiClassification,
+  lpSwap,
   defaultPassthrough,
 ];
 
