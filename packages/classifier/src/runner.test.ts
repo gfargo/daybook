@@ -1106,14 +1106,17 @@ describe('NFT rule ordering', () => {
     const nftRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '08-nft-classification');
     const defiRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '09-defi-classification');
     const lpSwapRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '10-lp-swap');
+    const lendingRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '11-lending-round-trip');
     const defaultRuleIndex = DEFAULT_RULES.findIndex(r => r.name === '07-default');
 
     expect(nftRuleIndex).toBe(6); // 0-indexed position 6 = 7th rule
     expect(defiRuleIndex).toBe(7); // 0-indexed position 7 = 8th rule
     expect(lpSwapRuleIndex).toBe(8); // 0-indexed position 8 = 9th rule
-    expect(defaultRuleIndex).toBe(9); // 0-indexed position 9 = 10th rule
+    expect(lendingRuleIndex).toBe(9); // 0-indexed position 9 = 10th rule
+    expect(defaultRuleIndex).toBe(10); // 0-indexed position 10 = 11th rule
     expect(nftRuleIndex).toBeLessThan(defiRuleIndex);
     expect(defiRuleIndex).toBeLessThan(lpSwapRuleIndex);
-    expect(lpSwapRuleIndex).toBeLessThan(defaultRuleIndex);
+    expect(lpSwapRuleIndex).toBeLessThan(lendingRuleIndex);
+    expect(lendingRuleIndex).toBeLessThan(defaultRuleIndex);
   });
 });

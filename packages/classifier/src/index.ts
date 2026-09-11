@@ -13,7 +13,8 @@
  *   7.  NFT classification      — detect NFT acquisition/disposal patterns by txHash
  *   8.  DeFi classification     — staking/reward-distributor contract income + transfer_self
  *   9.  LP swap collapse        — fold LP deposit/withdrawal into 1 trade (lp-router catalog)
- *   10. Default passthrough     — direct mapping for everything else
+ *   10. Lending round-trip      — Aave/Compound deposit+withdrawal → trade (principal only)
+ *   11. Default passthrough     — direct mapping for everything else
  */
 
 export { classify, entryId, findPrunableOverrides, validateOverrides } from './runner.js';
@@ -37,6 +38,7 @@ export { approvalGas } from './rules/06-approval-gas.js';
 export { nftClassification } from './rules/08-nft-classification.js';
 export { defiClassification } from './rules/09-defi-classification.js';
 export { lpSwap } from './rules/10-lp-swap.js';
+export { lendingRoundTrip } from './rules/11-lending-round-trip.js';
 export { defaultPassthrough } from './rules/07-default.js';
 
 // ─── Convenience: the default rule chain ─────────────────────────────────
@@ -49,10 +51,11 @@ import { approvalGas } from './rules/06-approval-gas.js';
 import { nftClassification } from './rules/08-nft-classification.js';
 import { defiClassification } from './rules/09-defi-classification.js';
 import { lpSwap } from './rules/10-lp-swap.js';
+import { lendingRoundTrip } from './rules/11-lending-round-trip.js';
 import { defaultPassthrough } from './rules/07-default.js';
 import type { ClassifierRule } from './types.js';
 
-/** The default 10-rule chain in execution order. */
+/** The default 11-rule chain in execution order. */
 export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   cbPairMerger,
   cbSelfTransfer,
@@ -63,6 +66,7 @@ export const DEFAULT_RULES: ReadonlyArray<ClassifierRule> = [
   nftClassification,
   defiClassification,
   lpSwap,
+  lendingRoundTrip,
   defaultPassthrough,
 ];
 
