@@ -36,6 +36,15 @@
  *   entryId is derived from the sorted raw event IDs of the group, matching
  *   the approach used by rules 04 and 08. Re-syncing the same source data
  *   always produces the same entry ID (inserts=0 on the second run).
+ *
+ * Catalog address provenance (defi-contracts.json, kind: 'lending-pool'):
+ *   Aave V2/V3 addresses were cross-checked against the official deployed-
+ *   contracts pages (https://docs.aave.com/developers/deployed-contracts/).
+ *   The repeated Polygon/Arbitrum/Optimism V3 aToken addresses are not a
+ *   copy-paste error — Aave V3 uses deterministic CREATE2 deployment, so the
+ *   same aToken address is legitimately reused across those chains.
+ *   Compound V2 addresses were cross-checked against
+ *   https://docs.compound.finance/v2/#networks.
  */
 
 import type { AssetLeg, LedgerEntry, RawEvent } from '@daybook/ledger';
@@ -163,7 +172,9 @@ export const lendingRoundTrip: ClassifierRule = {
       // We detect the direction by checking whether a known lending-pool contract
       // appears as the contractAddress on the OUT legs (withdrawal: receipt token
       // being burned/sent) vs the IN legs (deposit: receipt token being received).
-      const chainId = CHAIN_ID_BY_SOURCE[group[0]!.source] ?? 0;
+      // Reuse matchedEntry.chain (the chain the match was actually found on)
+      // rather than re-deriving it from group[0].source.
+      const chainId = matchedEntry.chain;
       const receiptTokenOut = principalOuts.some(e =>
         e.legs.some(
           l =>
