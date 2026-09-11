@@ -1,5 +1,5 @@
 /**
- * Rule 10 — Lending round-trip (Aave / Compound deposit + withdrawal).
+ * Rule 11 — Lending round-trip (Aave / Compound deposit + withdrawal).
  *
  * Detects supply (deposit) and redeem (withdrawal) transactions for known
  * lending protocols — currently Aave V2/V3 and Compound V2 — and classifies
@@ -117,7 +117,7 @@ function reasonLabel(entry: DeFiContractEntry, isDeposit: boolean): string {
  * `trade` LedgerEntry (principal + fee legs preserved).
  */
 export const lendingRoundTrip: ClassifierRule = {
-  name: '10-lending-round-trip',
+  name: '11-lending-round-trip',
 
   apply(
     events: ReadonlyArray<RawEvent>,

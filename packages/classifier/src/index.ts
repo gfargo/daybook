@@ -36,7 +36,7 @@ export { bridgeDetection } from './rules/05-bridge-detection.js';
 export { approvalGas } from './rules/06-approval-gas.js';
 export { nftClassification } from './rules/08-nft-classification.js';
 export { defiClassification } from './rules/09-defi-classification.js';
-export { lendingRoundTrip } from './rules/10-lending-round-trip.js';
+export { lendingRoundTrip } from './rules/11-lending-round-trip.js';
 export { defaultPassthrough } from './rules/07-default.js';
 
 // ─── Convenience: the default rule chain ─────────────────────────────────
@@ -48,7 +48,7 @@ import { bridgeDetection } from './rules/05-bridge-detection.js';
 import { approvalGas } from './rules/06-approval-gas.js';
 import { nftClassification } from './rules/08-nft-classification.js';
 import { defiClassification } from './rules/09-defi-classification.js';
-import { lendingRoundTrip } from './rules/10-lending-round-trip.js';
+import { lendingRoundTrip } from './rules/11-lending-round-trip.js';
 import { defaultPassthrough } from './rules/07-default.js';
 import type { ClassifierRule } from './types.js';
 

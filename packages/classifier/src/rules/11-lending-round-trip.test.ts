@@ -1,5 +1,5 @@
 /**
- * Unit tests for Rule 10 — lending round-trip (Aave / Compound).
+ * Unit tests for Rule 11 — lending round-trip (Aave / Compound).
  *
  * Mirrors the structure of 08-nft-classification.test.ts and
  * 09-defi-classification.test.ts.
@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { RawEvent } from '@daybook/ledger';
-import { lendingRoundTrip } from './10-lending-round-trip.js';
+import { lendingRoundTrip } from './11-lending-round-trip.js';
 import { loadDeFiContracts } from '../index.js';
 import type { ClassifierContext, DeFiContractEntry } from '../types.js';
 
